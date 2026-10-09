@@ -122,7 +122,11 @@ wtf debrid agent install
 the server at login and restarts it if it dies, logging to
 `~/Library/Logs/debrid-remote.log`. It names this shell's node binary by its
 absolute path and holds no secret : the server still reads `server/.env`.
-Run it again after moving the repo ; it is idempotent. The `down` matters if
+Run it again after moving the repo ; it is idempotent. With the Command Line
+Tools (`xcode-select -p` ; else `xcode-select --install`), it also compiles a
+menu-bar icon (`deploy/macos/DebridRemoteBar.swift`, into
+`~/Library/Application Support/debrid-remote/`) started by a second agent
+(`boo.ranchchoco.debrid-remote.menubar`). The `down` matters if
 the container was ever started : two servers would announce the same peer id
 on the relay.
 
@@ -148,6 +152,11 @@ wtf debrid agent start
 - `status` reads launchd : `running pid …`, `crashing` (loaded, not running :
   see the log), `stopped` or `absent`. Running means the process is up, not
   that a browser can reach it (VPN, firewall : § Troubleshooting).
+- The menu-bar icon shows the same state every 3 s : filled bolt = running,
+  outlined bolt = stopped, triangle = crashing, question mark = not
+  installed. Its menu has **Démarrer**, **Arrêter** (the same `start` /
+  `stop`) and **Ouvrir le journal**. **Quitter l'icône** quits the icon only,
+  until the next login or `install`.
 - `stop` unloads the agent : it stays stopped until `start` or the next login.
 - **Before a foreground debug run** (`wtf debrid start`, `DEBUG='werift-ice*'
   npm --prefix server start`), `wtf debrid agent stop` — otherwise the second
@@ -244,6 +253,7 @@ success` on `debrid-remote` in the frpc logs.
 | macOS : `crashing`, the log says `EADDRINUSE` ; or `install` says something already listens | a foreground server (`wtf debrid start`) still holds `:8098` | stop it (Ctrl-C ; `lsof -nP -iTCP:8098 -sTCP:LISTEN` gives its pid) |
 | macOS : webapp times out after a node upgrade, log shows `relay: connected` | the firewall allows the old node path, not the new one | `wtf debrid agent install`, then the two firewall lines it prints ; if that is not it, see the VPN row below |
 | macOS : server down after a reboot | nobody logged in yet (no auto-login, e.g. FileVault on) | log in ; the agent starts with the session |
+| macOS : no menu-bar icon | quit from its menu, `install` printed `swiftc not found` or `build failed`, or the menu bar is full | `wtf debrid agent install` again (`xcode-select --install` first if asked) ; `~/Library/Logs/debrid-remote-menubar.log` |
 | "Pas de connexion après 20 s" although the server logs `answer sent` | no ICE path : server in Docker on macOS (VM), container not on the host network (Linux), or a firewall dropping UDP `ICE_PORTS` | macOS : run it natively (§ 5) ; Linux : keep `network_mode: host` ; allow UDP `ICE_PORTS` |
 | "Pas de connexion après 20 s", server logs `answer sent`, nothing reaches it | a VPN active on the browser's device (or the server's) : the browser's candidates and checks go into the tunnel | turn the VPN off on both ends ; Tailscale alone did not get in the way |
 | Stream link answers `502` from Traefik | frpc cannot reach `:8098` on the host | check `localIP` in `frpc.toml` (`host.docker.internal` on macOS, gateway of frpc's network or LAN IP on Linux), that the server runs, and that no firewall blocks `8098` |
@@ -257,7 +267,7 @@ success` on `debrid-remote` in the frpc logs.
 | `wtf debrid test` | offline unit tests |
 | `wtf debrid test-live` | live test with the real key (home connection only) |
 | `wtf debrid start` | runs the server outside Docker with `server/.env`, in the foreground (stop the agent first on macOS) |
-| `wtf debrid agent install` / `uninstall` | macOS : adds / removes the LaunchAgent (start at login, restart if it dies) |
+| `wtf debrid agent install` / `uninstall` | macOS : adds / removes the LaunchAgent (start at login, restart if it dies) and the menu-bar icon |
 | `wtf debrid agent start` / `stop` / `status` | macOS : loads / unloads the agent, reads its launchd state |
 | `wtf debrid agent logs [-t N] [-f]` | macOS : the agent's log file |
 | `wtf debrid up` / `down` | builds and starts / stops the home container |

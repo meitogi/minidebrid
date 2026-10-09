@@ -1,6 +1,7 @@
 #!/bin/sh
 # debrid-remote server under launchd on macOS : start at login, restart if it dies.
 # Usage (from the repo root) : sh deploy/macos/agent.sh install|uninstall|start|stop|status|logs [-n N] [-f]
+# install also builds the menu-bar icon (DebridRemoteBar.swift) when swiftc is there.
 # Test overrides owned by this script : DEBRID_AGENT_OS (instead of uname -s),
 # DEBRID_AGENT_LAUNCHCTL (instead of launchctl), NODE_BIN (instead of the node on PATH).
 
@@ -11,6 +12,10 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd -P)
 SERVER="$ROOT/server"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/debrid-remote.log"
+BAR_LABEL=$LABEL.menubar
+BAR_PLIST="$HOME/Library/LaunchAgents/$BAR_LABEL.plist"
+BAR_BIN="$HOME/Library/Application Support/debrid-remote/DebridRemoteBar"
+BAR_LOG="$HOME/Library/Logs/debrid-remote-menubar.log"
 LAUNCHCTL=${DEBRID_AGENT_LAUNCHCTL:-launchctl}
 DOMAIN="gui/$(id -u)"
 FW=/usr/libexec/ApplicationFirewall/socketfilterfw
@@ -19,13 +24,13 @@ die() { echo "agent: $*" >&2; exit 1; }
 
 xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 
-loaded() { "$LAUNCHCTL" print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+loaded() { "$LAUNCHCTL" print "$DOMAIN/${1:-$LABEL}" >/dev/null 2>&1; }
 
 # bootout returns before launchd has torn the job down ; a bootstrap right after fails with 5 (I/O error).
 unload() {
-  "$LAUNCHCTL" bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || return 0
+  "$LAUNCHCTL" bootout "$DOMAIN/${1:-$LABEL}" >/dev/null 2>&1 || return 0
   i=0
-  while loaded && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+  while loaded "${1:-$LABEL}" && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
 }
 
 http_port() {
@@ -33,34 +38,59 @@ http_port() {
   echo "${p:-8098}"
 }
 
+# write_plist <plist> <label> <keepalive xml> <working dir> <log> <program> [args…]
 write_plist() {
-  mkdir -p "$(dirname "$PLIST")" "$(dirname "$LOG")"
-  cat > "$PLIST.tmp" <<EOF
+  file=$1 label=$2 keep=$3 dir=$4 out=$5
+  shift 5
+  args=
+  for a in "$@"; do args="$args
+		<string>$(xml "$a")</string>"; done
+  mkdir -p "$(dirname "$file")" "$(dirname "$out")"
+  cat > "$file.tmp" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>$LABEL</string>
+	<string>$label</string>
 	<key>ProgramArguments</key>
-	<array>
-		<string>$(xml "$1")</string>
-		<string>src/index.js</string>
+	<array>$args
 	</array>
 	<key>WorkingDirectory</key>
-	<string>$(xml "$SERVER")</string>
+	<string>$(xml "$dir")</string>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
-	<true/>
+	$keep
 	<key>StandardOutPath</key>
-	<string>$(xml "$LOG")</string>
+	<string>$(xml "$out")</string>
 	<key>StandardErrorPath</key>
-	<string>$(xml "$LOG")</string>
+	<string>$(xml "$out")</string>
 </dict>
 </plist>
 EOF
-  mv "$PLIST.tmp" "$PLIST"
+  mv "$file.tmp" "$file"
+}
+
+# Quitting the icon is a clean exit : SuccessfulExit false keeps it quit until the next login.
+install_menubar() {
+  if ! command -v swiftc >/dev/null 2>&1; then
+    echo "menu bar : swiftc not found, icon skipped — xcode-select --install, then install again"
+    return
+  fi
+  mkdir -p "$(dirname "$BAR_BIN")"
+  # Build beside, then rename : overwriting a signed binary in place gets its next launch killed on arm64.
+  if ! swiftc -parse-as-library -O -o "$BAR_BIN.new" "$ROOT/deploy/macos/DebridRemoteBar.swift"; then
+    rm -f "$BAR_BIN.new"
+    echo "menu bar : build failed (above), icon skipped — the server agent is installed"
+    return
+  fi
+  mv -f "$BAR_BIN.new" "$BAR_BIN"
+  write_plist "$BAR_PLIST" "$BAR_LABEL" '<dict><key>SuccessfulExit</key><false/></dict>' "$HOME" "$BAR_LOG" \
+    "$BAR_BIN" "$ROOT/deploy/macos/agent.sh" "$LOG"
+  unload "$BAR_LABEL"
+  "$LAUNCHCTL" bootstrap "$DOMAIN" "$BAR_PLIST"
+  echo "menu bar : $BAR_BIN ($BAR_LABEL)"
 }
 
 firewall_hint() {
@@ -101,7 +131,7 @@ install() {
     fi
   fi
 
-  write_plist "$node"
+  write_plist "$PLIST" "$LABEL" '<true/>' "$SERVER" "$LOG" "$node" src/index.js
   unload
   "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST"
 
@@ -113,6 +143,7 @@ installed $LABEL
   log    : $LOG
 EOF
   firewall_hint "$node"
+  install_menubar
   cat <<EOF
 Next : wtf debrid agent status   (expect : running, pid …)
        wtf debrid agent logs     (expect : http: listening on :$(http_port), relay: connected, peerId=srv-…)
@@ -122,9 +153,11 @@ EOF
 }
 
 uninstall() {
+  unload "$BAR_LABEL"
+  rm -f "$BAR_PLIST" "$BAR_BIN"
   unload
   rm -f "$PLIST"
-  echo "uninstalled $LABEL — server/.env and $LOG left in place"
+  echo "uninstalled $LABEL and its menu-bar icon — server/.env and $LOG left in place"
 }
 
 start() {
