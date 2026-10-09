@@ -1,8 +1,8 @@
 # Setup guide
 
-From an empty `.env` to a stream link answering through the tunnel. The
-webapp is not covered yet ; this guide stops at the server, the relay and
-the stream router.
+From an empty `.env` to a stream link answering through the tunnel : the
+server, the relay and the stream router. Publishing the webapp is in
+[README.md](README.md#run).
 
 ## Where each command runs
 
