@@ -1,0 +1,8 @@
+# Paste into the home frpc.toml, then: docker compose up -d frpc
+# Traefik on the VPS routes https://debrid.du.ranchchoco.boo → frps:8097 → this proxy.
+[[proxies]]
+name = "debrid-remote"
+type = "tcp"
+localIP = "debrid-remote"
+localPort = 8098
+remotePort = 8097
