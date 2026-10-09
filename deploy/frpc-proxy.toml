@@ -1,8 +1,8 @@
-# Paste into the home frpc.toml, then: docker compose up -d frpc
+# Append to the home frpc.toml, then: docker compose restart frpc
+# (frp renders this file as a Go template, comments included : never put double braces in it.)
 # Traefik on the VPS routes https://debrid.du.ranchchoco.boo → frps:8097 → this proxy.
 # The server runs with network_mode: host, so it listens on the host, not on frpc's network :
-# localIP = the gateway of frpc's network as seen from frpc
-# (docker inspect frpc --format '{{json .NetworkSettings.Networks}}' → "Gateway"),
+# localIP = the gateway of frpc's network as seen from frpc (docker inspect frpc, "Gateway"),
 # or this machine's LAN IP.
 [[proxies]]
 name = "debrid-remote"

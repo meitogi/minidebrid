@@ -139,12 +139,21 @@ docker exec frpc wget -qS -O /dev/null http://172.18.0.1:8098/s/x/y
 (`docker inspect frpc --format '{{json .NetworkSettings.Networks}}'`) ; it
 changes if that network is recreated with another subnet.
 
-Then append [deploy/frpc-proxy.toml](deploy/frpc-proxy.toml) to the home
-`frpc.toml` and, from the frpc compose directory :
+Then, from the frpc compose directory, back up `frpc.toml`, append
+[deploy/frpc-proxy.toml](deploy/frpc-proxy.toml), and restart frpc (`up -d`
+would not reload a bind-mounted config) :
 
 ```sh
-docker compose up -d frpc
+cp frpc.toml frpc.toml.bak
+cat <path-to-this-repo>/deploy/frpc-proxy.toml >> frpc.toml
+docker compose restart frpc
+docker compose logs --tail 20 frpc
 ```
+
+Every proxy must log `start proxy success`. frp renders `frpc.toml` as a Go
+template, comments included : a stray double brace stops frpc with
+`template: frp:<line>: …` and takes **every** tunnel down. Roll back with
+`cp frpc.toml.bak frpc.toml` and restart.
 
 Check :
 
