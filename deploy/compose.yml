@@ -1,5 +1,6 @@
 # Home machine : docker compose -f deploy/compose.yml up -d --build
-# frpc reaches the stream server by container name on the `web` network (see frpc-proxy.toml).
+# frpc reaches the stream server by container name on frpc's network (see frpc-proxy.toml) :
+# chocoboflix_web by default, override with WEB_NETWORK in the shell or in deploy/.env.
 services:
   debrid-remote:
     container_name: debrid-remote
@@ -18,3 +19,4 @@ services:
 networks:
   web:
     external: true
+    name: ${WEB_NETWORK:-chocoboflix_web}

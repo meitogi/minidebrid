@@ -117,7 +117,10 @@ A repeating `relay: error … retry in …` means `RELAY_URL` is wrong or step 4
 is not reachable yet. The server keeps retrying with backoff (up to 30 s),
 so it reconnects on its own once the relay is up.
 
-The container joins the existing external `web` network (Jellyfin's) and
+The container joins frpc's existing network, `chocoboflix_web` (the `web`
+network of the `chocoboflix` compose project, where frpc and Jellyfin run) ;
+set `WEB_NETWORK` in the shell or in a gitignored `deploy/.env` if yours
+differs (`docker inspect frpc --format '{{json .NetworkSettings.Networks}}'`). It
 publishes UDP `50000-50019` for WebRTC.
 
 ## 6. Home — frpc
