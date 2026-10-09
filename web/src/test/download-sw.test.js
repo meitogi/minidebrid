@@ -23,7 +23,7 @@ globalThis.setTimeout = (fn, ms, ...args) => {
 };
 
 /** Boots the worker and the page globals ; resolves the fetch outcome of the next download. */
-async function browser(ua) {
+async function browser(ua, { fetchDelay = 0 } = {}) {
   const listeners = {};
   const self = {
     registration: { scope: ORIGIN + '/' }, // download.js's BASE is '/' outside Vite
@@ -58,7 +58,7 @@ async function browser(ua) {
               respondWith: (p) => (response = p),
             });
             fetches.push({ src, waits, response });
-          }, 0);
+          }, fetchDelay);
         },
       });
       return frame;
@@ -132,6 +132,22 @@ test('SW mode : byte-exact through the worker with a slow reader, exact headers,
   assert.equal(await outcome, 'end');
   assert.equal(body.length, bytes.length);
   assert.ok(body.equals(Buffer.from(bytes)), 'body differs from the source');
+  assert.deepEqual(progress.at(-1), [bytes.length, bytes.length]);
+});
+
+test('SW mode : no progress reported before the browser took the download', async () => {
+  const { fetches } = await browser(UA_CHROME, { fetchDelay: 50 });
+  const bytes = source(512 * 1024);
+  const progress = [];
+  const outcome = save(fakeSession(bytes), { link: 'l', name: 'a.bin', size: bytes.length }, 'sw', (r, s) => progress.push([r, s]));
+  await new Promise((r) => realSetTimeout(r, 25)); // server started, chunks queued, URL not reached yet
+  assert.deepEqual(progress, []);
+  await until(() => fetches.length === 1);
+  const body = await drain(await fetches[0].response);
+  assert.equal(await outcome, 'end');
+  assert.equal(body.length, bytes.length);
+  assert.ok(progress.length > 0);
+  assert.ok(progress[0][0] > 0, 'first report carries the bytes already received'); // chunks arrived during the wait
   assert.deepEqual(progress.at(-1), [bytes.length, bytes.length]);
 });
 

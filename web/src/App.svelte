@@ -188,23 +188,27 @@
     console.log('debrid-remote : téléchargement P2P', file.name, chooseMode(caps ?? NO_CAPS, file.size));
     error = '';
     downloading = link;
-    transfers[link] = { received: 0, size: file.size, state: 'en cours' };
+    delete transfers[link]; // the bar shows once the download really began (first progress)
     try {
       const outcome = await save(session, file, mode, (received, size, phase) => {
-        const t = transfers[link];
+        transfers[link] ??= { received: 0, size: file.size, state: 'en cours' };
+        const t = transfers[link]; // the $state proxy, not the object just assigned
         t.received = received;
         t.size = size || file.size;
         if (phase === 'handoff') t.state = 'préparation du téléchargement';
       });
       if (outcome === 'aborted') delete transfers[link];
       else if (outcome === 'end') {
+        transfers[link] ??= { received: 0, size: file.size };
         transfers[link].state = 'terminé';
         notify(`« ${file.name} » enregistré`);
       } else {
+        transfers[link] ??= { received: 0, size: file.size };
         transfers[link].state = 'annulé';
         notify(`« ${file.name} » annulé`, 'muted');
       }
     } catch (e) {
+      transfers[link] ??= { received: 0, size: file.size };
       const t = transfers[link];
       t.state = 'erreur';
       t.error = describe(e);

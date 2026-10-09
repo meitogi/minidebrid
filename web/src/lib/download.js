@@ -211,7 +211,8 @@ const SINKS = { picker: pickerSink, sw: swSink, opfs: opfsSink };
 
 /**
  * Streams `session.download(link)` into the sink of `mode` (picker | sw | opfs).
- * onProgress(received, size, phase) — phase 'handoff' once every byte is staged (OPFS).
+ * onProgress(received, size, phase) — from the moment the download really began (location picked,
+ * the browser took the SW download, staging file open) ; phase 'handoff' once every byte is staged (OPFS).
  * Resolves 'end' | 'cancelled' | 'aborted' ('aborted' = the user closed the picker, nothing
  * was requested from the server). Call it from the click handler : open() needs the gesture.
  */
@@ -228,6 +229,7 @@ export async function save(session, { link, name, size: listed = 0 }, mode, onPr
   let received = 0;
   let failure = null;
   let started = Promise.resolve();
+  let live = false; // the sink started : progress is reported from here
   const fail = (e) => {
     if (failure) return;
     failure = e;
@@ -246,13 +248,15 @@ export async function save(session, { link, name, size: listed = 0 }, mode, onPr
     start(total) {
       size = total;
       started = sink.start(total);
-      started.catch(fail);
-      onProgress(0, size);
+      started.then(() => {
+        live = true;
+        onProgress(received, size);
+      }, fail);
     },
     chunk(buffer) {
       received += buffer.byteLength;
       if (!pump.push(buffer)) fail(new Error("l'enregistrement ne suit pas le transfert : annulé"));
-      onProgress(received, size);
+      if (live) onProgress(received, size);
     },
   };
   let outcome;
