@@ -17,6 +17,12 @@ export async function saveToDisk(session, { link, name }, onProgress = () => {})
     throw e;
   }
   const writable = await handle.createWritable();
+  // abort() only drops the buffered bytes : the picker already created the file, empty. Remove it
+  // too, so a cancelled or failed transfer leaves nothing behind (remove() : Chromium ≥ 110).
+  const discard = async () => {
+    await writable.abort().catch(() => {});
+    await handle.remove?.().catch(() => {});
+  };
   let size = 0;
   let received = 0;
   // Writes queue in order inside the WritableStream ; close() waits for the queue.
@@ -40,15 +46,15 @@ export async function saveToDisk(session, { link, name }, onProgress = () => {})
   try {
     outcome = await session.download(link, sink);
   } catch (e) {
-    await writable.abort().catch(() => {});
+    await discard();
     throw e;
   }
   if (writeError) {
-    await writable.abort().catch(() => {});
+    await discard();
     throw new Error(`écriture impossible : ${writeError.message}`);
   }
   if (outcome === 'cancelled') {
-    await writable.abort().catch(() => {});
+    await discard();
     return outcome;
   }
   await writable.close();
