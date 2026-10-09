@@ -85,7 +85,7 @@ server is down or not connected to the relay.
 |---|---|---|
 | `wtf debrid test`, `npm --prefix web ci / test / run build / run dev` | **devcontainer** | Offline. `web/node_modules` holds per-platform binaries (Rolldown, Lightning CSS) for the platform that ran `npm ci` : run every `web/` npm command on the same side, here. CI installs its own. |
 | `wtf debrid test-live` | devcontainer or host, **home connection only** | Calls Alldebrid with the real key. |
-| `wtf debrid start` (macOS, native) or `wtf debrid up` / `logs` (Linux, container), frpc paste | **host**, home machine | Must share the home IP ; frpc lives outside this repo. On macOS, Docker Desktop's VM hides the Mac's addresses from WebRTC (GUIDE § 5). |
+| `wtf debrid agent …` / `wtf debrid start` (macOS, native under launchd / foreground) or `wtf debrid up` / `logs` (Linux, container), frpc paste | **host**, home machine | Must share the home IP ; frpc lives outside this repo. On macOS, Docker Desktop's VM hides the Mac's addresses from WebRTC (GUIDE § 5), and launchd only exists there. |
 | `wtf signal start` / `logs` (relay) | **host**, VPS checkout of `server-kevledev-mini` | VPS infra. |
 | `gh repo create`, `git push`, Pages enablement | **host** | Needs GitHub credentials. |
 | HTTPS checks (`curl https://…du.ranchchoco.boo`) | **host** | The devcontainer firewall blocks the VPS. |

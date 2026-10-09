@@ -36,3 +36,25 @@
       desc: Follow output
       default: false
       test: $bool
+
+- group: debrid
+  name: agent
+  desc: |
+    macOS — the server under launchd : starts at login, restarts if it dies (GUIDE § 5).
+      install | uninstall | start | stop | status | logs [-t N] [-f]
+  args:
+    - name: action
+      desc: install, uninstall, start, stop, status or logs
+      required: true
+      test: ^(install|uninstall|start|stop|status|logs)$
+  flags:
+    - name: [tail, t]
+      desc: Number of log lines (logs only)
+      default: 50
+      test: $uint
+    - name: [follow, f]
+      desc: Follow the log (logs only)
+      default: false
+      test: $bool
+  cwd: .
+  cmd: sh deploy/macos/agent.sh {{ .action }}{{ if eq .action "logs" }} -n {{ .tail }}{{ if .follow }} -f{{ end }}{{ end }}

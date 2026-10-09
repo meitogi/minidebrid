@@ -12,7 +12,7 @@ server, the relay and the stream router. Publishing the webapp is in
 | Live test (`wtf debrid test-live`) | devcontainer or host, **home connection only** | calls Alldebrid with the real key |
 | DNS records | Cloudflare dashboard | — |
 | Relay + router (`wtf signal …`) | VPS, `server-kevledev-mini` checkout | VPS infra |
-| Server (`wtf debrid start` on macOS, `wtf debrid up` on Linux) | home machine | must share the home IP |
+| Server (`wtf debrid agent …` on macOS, `wtf debrid up` on Linux) | home machine | must share the home IP ; launchd and the macOS firewall are host-only |
 | frpc proxy | home machine, frpc directory | outside both repos |
 | HTTPS checks (`curl`) | host | the devcontainer firewall blocks the VPS |
 
@@ -104,29 +104,70 @@ How it runs depends on the home machine's OS.
 **macOS — run it natively, not in Docker.** Docker Desktop runs containers
 in a Linux VM : even with `network_mode: host` the container only sees the
 VM's addresses (`192.168.65.x`), never the Mac's LAN IP, so WebRTC finds no
-path (the offer is answered, then the browser times out after 20 s). From
-this repo :
+path (the offer is answered, then the browser times out after 20 s).
+
+Keep the repo out of `~/Downloads`, `~/Documents` and `~/Desktop` (e.g. in
+`~/Developer`) : macOS protects those folders, and a node started by launchd
+gets `Operation not permitted` there while the same command works in
+Terminal. From this repo, in the shell where `node` is the one to use :
 
 ```sh
 docker compose -p debrid-remote -f deploy/compose.yml down
 npm --prefix server ci
-wtf debrid start
+wtf debrid agent install
 ```
 
-The `down` matters if the container was ever started : two servers would
-announce the same peer id on the relay. If the macOS firewall is on, allow
-the node binary explicitly (it is per binary : redo it after a node upgrade) :
+`install` writes a LaunchAgent
+(`~/Library/LaunchAgents/boo.ranchchoco.debrid-remote.plist`) that starts
+the server at login and restarts it if it dies, logging to
+`~/Library/Logs/debrid-remote.log`. It names this shell's node binary by its
+absolute path and holds no secret : the server still reads `server/.env`.
+Run it again after moving the repo ; it is idempotent. The `down` matters if
+the container was ever started : two servers would announce the same peer id
+on the relay.
+
+If the macOS firewall is on, the node binary must be allowed explicitly — it
+is per binary, and `install` prints these two lines with the exact path when
+it is not allowed yet :
 
 ```sh
 NODE_BIN="$(node -p process.execPath)"
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add "$NODE_BIN"
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp "$NODE_BIN"
 ```
- `wtf debrid start` runs in the foreground (Ctrl-C
-stops it) ; starting it at login is not covered yet.
+
+Day to day :
+
+```sh
+wtf debrid agent status
+wtf debrid agent logs -f
+wtf debrid agent stop
+wtf debrid agent start
+```
+
+- `status` reads launchd : `running pid …`, `crashing` (loaded, not running :
+  see the log), `stopped` or `absent`. Running means the process is up, not
+  that a browser can reach it (VPN, firewall : § Troubleshooting).
+- `stop` unloads the agent : it stays stopped until `start` or the next login.
+- **Before a foreground debug run** (`wtf debrid start`, `DEBUG='werift-ice*'
+  npm --prefix server start`), `wtf debrid agent stop` — otherwise the second
+  server fails with `EADDRINUSE` on `:8098`. `start` again afterwards.
+- **After a node upgrade** (`nvm install`, `brew upgrade node`), run
+  `wtf debrid agent install` again and allow the new path it prints : the
+  plist and the firewall entry both name the old binary.
+- **Login, not boot** : a LaunchAgent starts when the user's session opens.
+  With auto-login (Users & Groups) that is right after a reboot ; turning
+  FileVault on disables auto-login, and the server then waits for someone to
+  log in.
+- The log is not rotated (one line per connection). To clear it : `stop`,
+  delete the file, `start`.
+- `wtf debrid agent uninstall` removes the agent ; `server/.env` and the log
+  stay.
 
 **Linux — the container.** `deploy/compose.yml` uses `network_mode: host`,
-which on Linux is the machine's real network :
+which on Linux is the machine's real network, and `restart: unless-stopped`,
+which brings it back after a crash and at boot when the Docker service is
+enabled (`systemctl enable docker`) :
 
 ```sh
 wtf debrid up
@@ -198,6 +239,11 @@ success` on `debrid-remote` in the frpc logs.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Container restarting | a required variable is missing | `wtf debrid logs` names it |
+| macOS : `agent status` says `crashing`, the log repeats `… missing — fill it in .env` | a required variable is missing ; launchd relaunches the server every 10 s | fill `server/.env` ; the next relaunch picks it up |
+| macOS : `crashing`, the log says `Operation not permitted` | the repo is in a folder macOS protects (`~/Downloads`, `~/Documents`, `~/Desktop`) | move it (e.g. `~/Developer`), then `wtf debrid agent install` from the new place |
+| macOS : `crashing`, the log says `EADDRINUSE` ; or `install` says something already listens | a foreground server (`wtf debrid start`) still holds `:8098` | stop it (Ctrl-C ; `lsof -nP -iTCP:8098 -sTCP:LISTEN` gives its pid) |
+| macOS : webapp times out after a node upgrade, log shows `relay: connected` | the firewall allows the old node path, not the new one | `wtf debrid agent install`, then the two firewall lines it prints ; if that is not it, see the VPN row below |
+| macOS : server down after a reboot | nobody logged in yet (no auto-login, e.g. FileVault on) | log in ; the agent starts with the session |
 | "Pas de connexion après 20 s" although the server logs `answer sent` | no ICE path : server in Docker on macOS (VM), container not on the host network (Linux), or a firewall dropping UDP `ICE_PORTS` | macOS : run it natively (§ 5) ; Linux : keep `network_mode: host` ; allow UDP `ICE_PORTS` |
 | "Pas de connexion après 20 s", server logs `answer sent`, nothing reaches it | a VPN active on the browser's device (or the server's) : the browser's candidates and checks go into the tunnel | turn the VPN off on both ends ; Tailscale alone did not get in the way |
 | Stream link answers `502` from Traefik | frpc cannot reach `:8098` on the host | check `localIP` in `frpc.toml` (`host.docker.internal` on macOS, gateway of frpc's network or LAN IP on Linux), that the server runs, and that no firewall blocks `8098` |
@@ -210,7 +256,10 @@ success` on `debrid-remote` in the frpc logs.
 |---|---|
 | `wtf debrid test` | offline unit tests |
 | `wtf debrid test-live` | live test with the real key (home connection only) |
-| `wtf debrid start` | runs the server outside Docker with `server/.env` |
+| `wtf debrid start` | runs the server outside Docker with `server/.env`, in the foreground (stop the agent first on macOS) |
+| `wtf debrid agent install` / `uninstall` | macOS : adds / removes the LaunchAgent (start at login, restart if it dies) |
+| `wtf debrid agent start` / `stop` / `status` | macOS : loads / unloads the agent, reads its launchd state |
+| `wtf debrid agent logs [-t N] [-f]` | macOS : the agent's log file |
 | `wtf debrid up` / `down` | builds and starts / stops the home container |
 | `wtf debrid logs [-t N] [-f]` | container logs |
 | `wtf signal start` / `stop` / `logs` | the relay, on the VPS |
