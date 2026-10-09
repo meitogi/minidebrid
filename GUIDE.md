@@ -52,8 +52,8 @@ The first is offline. The second reads the key and token from
 
 - checks the account, lists the magnets, reads the files of up to 3 ready
   ones ;
-- downloads the smallest file over a real WebRTC DataChannel (whole file up
-  to 20 MB, otherwise cancelled after 2 MB) ;
+- downloads the smallest file of at least 1 MB over a real WebRTC
+  DataChannel (whole file up to 20 MB, otherwise cancelled after 2 MB) ;
 - fetches the same file through the stream proxy with `Range` and checks
   the first and last KB match the P2P bytes.
 

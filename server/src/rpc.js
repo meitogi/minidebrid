@@ -1,11 +1,16 @@
 // DataChannel RPC : string = JSON control, binary = file bytes.
 // First message must be {t:'auth', token} ; request {id, m, p} → reply {id, r} or {id, e}.
+// A message over FRAME_MAX bytes goes out as {frag} frames, the last one {frag, last:true} :
+// the receiver joins the frag strings and parses the result. werift refuses to send anything
+// above the remote's max-message-size (64 KB for werift, 256 KB for Chrome).
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { sendStream } from './chunker.js';
 
 const AD_PATH = /^\/v4(\.1)?\//;
 const digest = (s) => createHash('sha256').update(String(s)).digest();
+export const FRAME_MAX = 60 * 1024;
+const FRAG_CHARS = 8192; // ≤ 6 bytes per char once JSON-escaped : a frame stays under 64 KB
 
 /**
  * deps : token (APP_TOKEN), ad(path, fields), streamUrl(link, name) → {url, expires},
@@ -18,7 +23,16 @@ export function createRpc(channel, { token, ad, streamUrl, openDownload, authTim
   let download = null; // AbortController of the running download
   const timer = setTimeout(() => { if (!authed) channel.close(); }, authTimeoutMs);
 
-  const send = (obj) => { if (channel.readyState === 'open') channel.send(JSON.stringify(obj)); };
+  function send(obj) {
+    if (channel.readyState !== 'open') return;
+    const text = JSON.stringify(obj);
+    if (Buffer.byteLength(text) <= FRAME_MAX) return channel.send(text);
+    const length = text.length;
+    for (let off = 0; off < length; off += FRAG_CHARS) {
+      const end = off + FRAG_CHARS;
+      channel.send(JSON.stringify(end >= length ? { frag: text.slice(off), last: true } : { frag: text.slice(off, end) }));
+    }
+  }
 
   const methods = {
     ad({ path, fields }) {

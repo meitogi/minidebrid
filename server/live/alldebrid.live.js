@@ -3,7 +3,8 @@
 // Reads ALLDEBRID_APIKEY and APP_TOKEN from server/.env ; skipped when either is missing.
 // Run it only from the home connection (Alldebrid bans accounts seen from several IPs) :
 //   npm run test:live        (or: wtf debrid test-live)
-// At most 7 sequential Alldebrid calls ; downloads one small file, never uploads or deletes.
+// At most 7 sequential Alldebrid calls ; downloads one small file (the smallest ≥ 1 MB), never
+// uploads or deletes.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,6 +23,7 @@ const missing = ['ALLDEBRID_APIKEY', 'APP_TOKEN'].filter((n) => !process.env[n])
 const FULL_DOWNLOAD_MAX = 20 * 1024 * 1024; // above this, cancel after PARTIAL bytes
 const PARTIAL = 2 * 1024 * 1024;
 const MAGNETS_SCANNED = 3;
+const MIN_SIZE = 1024 * 1024; // skip .nfo-sized files : a single chunk proves nothing about streaming
 
 function flatten(entries, prefix = '', out = []) {
   for (const entry of entries) {
@@ -51,6 +53,7 @@ async function connect(rpcDeps) {
   const pending = {};
   const client = { received: [], receivedBytes: 0, onBytes: null, terminal: null, onTerminal: null };
   let nextId = 1;
+  let frags = [];
   const authed = new Promise((resolve, reject) => {
     channel.stateChanged.subscribe((s) => {
       if (s === 'open') channel.send(JSON.stringify({ t: 'auth', token }));
@@ -63,7 +66,13 @@ async function connect(rpcDeps) {
         client.onBytes?.();
         return;
       }
-      const msg = JSON.parse(data);
+      let msg = JSON.parse(data);
+      if (msg.frag !== undefined) {
+        frags.push(msg.frag);
+        if (!msg.last) return;
+        msg = JSON.parse(frags.join(''));
+        frags = [];
+      }
       if (msg.t === 'auth') return resolve();
       if (msg.t) { client.terminal = msg; return client.onTerminal?.(msg); }
       const p = pending[msg.id];
@@ -108,11 +117,15 @@ test('live : RPC passthrough, P2P download and stream proxy agree byte for byte'
     t.diagnostic(`${magnets.length} magnets, scanning ${ready.length} ready ones`);
     if (!ready.length) return t.skip('no ready magnet on the account');
 
-    let file = null;
+    let file = null; // smallest file ≥ MIN_SIZE, else the largest one below it
     for (const magnet of ready) {
       const data = await client.call('ad', { path: '/v4/magnet/files', fields: { 'id[]': String(magnet.id) } });
       for (const f of flatten(data.magnets?.[0]?.files ?? [])) {
-        if (f.size > 0 && (!file || f.size < file.size)) file = f;
+        const size = f.size;
+        if (!f.link || size <= 0) continue;
+        const better = !file
+          || (size >= MIN_SIZE ? file.size < MIN_SIZE || size < file.size : file.size < MIN_SIZE && size > file.size);
+        if (better) file = f;
       }
     }
     assert.ok(file?.link, 'no file with a link in the scanned magnets');

@@ -7,7 +7,8 @@ const TOKEN = 'app-token';
 
 // Channel double limited to the werift RTCDataChannel surface the server uses :
 // send, readyState, bufferedAmount, bufferedAmountLowThreshold, bufferedAmountLow.subscribe, close.
-// `sent` is the test's own record, not a channel method. bufferedAmount grows on send and drains
+// `sent` is the test's own record, not a channel method. send throws above 64 KB like werift
+// (the remote's max-message-size). bufferedAmount grows on send and drains
 // asynchronously, firing bufferedAmountLow like the real channel, so backpressure is exercised.
 function makeChannel() {
   let subs = [];
@@ -17,6 +18,8 @@ function makeChannel() {
     bufferedAmountLowThreshold: 0,
     sent: [],
     send(data) {
+      const size = typeof data === 'string' ? Buffer.byteLength(data) : data.length;
+      if (size > 65536) throw new Error(`max-message-size exceeded: ${size} > 65536`);
       channel.sent.push(data);
       if (typeof data !== 'string') channel.bufferedAmount += data.length;
       if (channel.bufferedAmount > 1024 * 1024) {
@@ -107,6 +110,33 @@ test('ad path outside /v4 → {id, e}, ad never called', async () => {
   assert.equal(calls.ad.length, 0);
   const errors = json(channel).filter((m) => m.e);
   assert.equal(errors.length, 4);
+  rpc.dispose();
+});
+
+// Joins {frag} frames back into messages, as the webapp must.
+function reassemble(strings) {
+  const out = [];
+  let parts = [];
+  for (const s of strings) {
+    const msg = JSON.parse(s);
+    if (msg.frag === undefined) { out.push(msg); continue; }
+    parts.push(msg.frag);
+    if (msg.last) { out.push(JSON.parse(parts.join(''))); parts = []; }
+  }
+  return out;
+}
+
+test('reply above 64 KB → {frag} frames under the limit, reassembled payload intact', async () => {
+  const magnets = [];
+  for (let i = 0; i < 3000; i++) magnets.push({ id: i, filename: `Film "${i}" l’été 日本 😀\n`, size: i * 1e9 });
+  const { channel, rpc } = setup({ ad: async () => ({ magnets }) });
+  rpc.onMessage(JSON.stringify({ t: 'auth', token: TOKEN }));
+  rpc.onMessage(JSON.stringify({ id: 5, m: 'ad', p: { path: '/v4.1/magnet/status' } }));
+  await tick();
+  const strings = channel.sent.filter((d) => typeof d === 'string');
+  assert.ok(strings.length > 3, 'expected fragmentation');
+  assert.ok(strings.every((s) => Buffer.byteLength(s) <= 65536));
+  assert.deepEqual(reassemble(strings), [{ t: 'auth', ok: true }, { id: 5, r: { magnets } }]);
   rpc.dispose();
 });
 
