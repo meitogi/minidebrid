@@ -50,7 +50,10 @@
 
   // Before the probe answers, nothing qualifies : the link mode.
   const NO_CAPS = { picker: false, android: false, sw: false, opfs: false, webkit: null };
-  probe().then((p) => (caps = p), () => (caps = NO_CAPS));
+  probe().then((p) => {
+    caps = p;
+    console.log('debrid-remote : capacités de téléchargement', p);
+  }, () => (caps = NO_CAPS));
   const modeFor = (size) => chooseMode(caps ?? NO_CAPS, size).mode;
   const usualMode = $derived(modeFor(1)); // a file of known size : what this browser mostly uses
   const HINTS = {
@@ -182,6 +185,7 @@
 
   async function downloadP2P(file, mode) {
     const link = file.link;
+    console.log('debrid-remote : téléchargement P2P', file.name, chooseMode(caps ?? NO_CAPS, file.size));
     error = '';
     downloading = link;
     transfers[link] = { received: 0, size: file.size, state: 'en cours' };
@@ -283,7 +287,7 @@
             <div class="meta">{formatSize(f.size)}</div>
             <div class="actions">
               {#if mode !== 'link'}
-                <button class="small dl-p2p" data-mode={mode} onclick={() => downloadP2P(f, mode)} disabled={!!downloading}>Télécharger (P2P)</button>
+                <button class="small dl-p2p" data-mode={mode} onclick={() => downloadP2P(f, mode)} disabled={!!downloading}>Télécharger</button>
               {:else}
                 <button class="small dl-direct" onclick={() => downloadDirect(f)}>Télécharger</button>
               {/if}

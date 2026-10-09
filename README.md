@@ -73,7 +73,7 @@ Settings → Pages → Source to **GitHub Actions**, then Actions → **pages** 
 | Settings | Token + relay URL, kept in this browser's localStorage. **Se connecter**. |
 | Connection | Progress, then the ICE path : `LAN direct`, `P2P direct (srflx/…)` from outside, or `P2P direct (IPv6/public)` when both ends have a public IPv6 (typical on 4G), `TURN (relay)` never (no TURN server). |
 | Magnets | Ready ones first. **Actualiser** re-reads them ; nothing polls Alldebrid in the background (limit 12 req/s, 600/min). |
-| Files | Real names from Alldebrid. **Télécharger (P2P)** brings the bytes over the DataChannel from the home server, never through the VPS, with a progress bar and **Annuler** ; the way it reaches the disk depends on the browser (table below, named under the magnet's title). A browser with no P2P mode gets **Télécharger** instead : one click starts the browser's own download of the stream link with `?dl=1`, through the tunnel. **Copier le lien** copies a stream link valid 7 days (VLC, any player) and confirms with « Copié ✓ » ; **Voir le lien** shows it with its expiry. |
+| Files | Real names from Alldebrid. **Télécharger** brings the bytes over the DataChannel from the home server, never through the VPS, with a progress bar and **Annuler** ; the way it reaches the disk depends on the browser (table below, named under the magnet's title). In a browser with no P2P mode, **Télécharger** instead starts the browser's own download of the stream link with `?dl=1`, through the tunnel. **Copier le lien** copies a stream link valid 7 days (VLC, any player) and confirms with « Copié ✓ » ; **Voir le lien** shows it with its expiry. |
 
 P2P download mode per browser — first one that works, chosen per file :
 
