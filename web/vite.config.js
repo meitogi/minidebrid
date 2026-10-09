@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
-// Served from https://<user>.github.io/debrid-remote/ (GitHub Pages project site).
+// Served from https://meitogi.github.io/minidebrid/ (GitHub Pages project site = repo name).
 export default defineConfig({
-  base: '/debrid-remote/',
+  base: '/minidebrid/',
   plugins: [svelte()],
 });

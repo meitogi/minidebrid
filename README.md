@@ -31,7 +31,8 @@ npm --prefix web run build
 ```
 
 The first runs the server's offline suite ; the last writes `web/dist/`, with
-every asset under `/debrid-remote/` (the Pages project path).
+every asset under `/minidebrid/` (the Pages project path = the GitHub repo
+name ; rename one, change `base` in `web/vite.config.js` too).
 
 Local webapp against any relay :
 
@@ -39,13 +40,13 @@ Local webapp against any relay :
 npm --prefix web run dev
 ```
 
-Open <http://localhost:5173/debrid-remote/>, paste the token, keep the relay
+Open <http://localhost:5173/minidebrid/>, paste the token, keep the relay
 `wss://signal.du.ranchchoco.boo` (or a local `ws://…`).
 
 Publish the webapp, once, on the host :
 
 ```sh
-gh repo create debrid-remote --public --source . --remote origin
+gh repo create minidebrid --public --source . --remote origin
 gh api -X POST repos/{owner}/{repo}/pages -f build_type=workflow
 git push -u origin main
 ```
@@ -55,9 +56,15 @@ Settings → Pages) before the first push triggers a deploy. Each push to
 `main` touching `web/` runs
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) (`npm ci`, tests,
 build, deploy) and the app is served at
-`https://<user>.github.io/debrid-remote/`. Pages on a private repository
+<https://meitogi.github.io/minidebrid/>. Pages on a private repository
 needs a paid GitHub plan ; the repository holds no secret (`.env` is
 gitignored), which is why the command above creates it public.
+
+If that URL shows this README instead of the token form, Pages' source is
+still "Deploy from a branch" : a run named *pages build and deployment*
+(GitHub's built-in Jekyll build) published the branch over the app. Switch
+Settings → Pages → Source to **GitHub Actions**, then Actions → **pages** →
+**Run workflow**.
 
 ## Using the webapp
 
