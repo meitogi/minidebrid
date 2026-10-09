@@ -8,10 +8,10 @@ one IP, the home machine — Alldebrid bans accounts used from several IPs.
   after a token handshake, passes Alldebrid API calls through, sends files
   over the DataChannel, and serves signed HTTPS stream links (Range-capable,
   for VLC) through the frp + Traefik tunnel.
-- **`web/`** — Svelte 5 + Vite webapp on GitHub Pages. Paste the server's
-  `APP_TOKEN` once ; the webapp derives the server's relay id from it,
-  connects peer to peer, lists magnets and their files, downloads a file
-  P2P to disk or copies a VLC link.
+- **`web/`** — Svelte 5 + Vite webapp on GitHub Pages. Open the setup link
+  of a token once (`wtf debrid token add`, GUIDE § 7) ; the webapp finds the
+  home server on the relay, connects peer to peer, lists magnets and their
+  files, downloads a file P2P to disk or copies a VLC link.
 
 The browser never talks to Alldebrid : the webapp's network traffic is the
 relay (signaling only), the DataChannel to the home server, and the stream
@@ -40,8 +40,9 @@ Local webapp against any relay :
 npm --prefix web run dev
 ```
 
-Open <http://localhost:5173/minidebrid/>, paste the token, keep the relay
-`wss://signal.du.ranchchoco.boo` (or a local `ws://…`).
+Open <http://localhost:5173/minidebrid/#setup>, paste a token, keep the
+relay `wss://signal.du.ranchchoco.boo` (or a local `ws://…`). Without a
+saved token and without `#setup` the page redirects to GitHub (below).
 
 Publish the webapp, once, on the host :
 
@@ -70,7 +71,9 @@ Settings → Pages → Source to **GitHub Actions**, then Actions → **pages** 
 
 | Step | What you see |
 |---|---|
-| Settings | Token + relay URL, kept in this browser's localStorage. **Se connecter**. |
+| Setup link | `https://meitogi.github.io/minidebrid/#t=<token>` (from `wtf debrid token add`, optionally `&r=<relay>`) : saves the token (and relay) in this browser, removes it from the address bar and connects. A device that already holds another token asks « Remplacer le jeton enregistré par celui du lien ? » ; **Annuler** keeps the old one. A relay in a link is accepted only as `wss://` (or `ws://` on `localhost` / `127.0.0.1`). |
+| Landing | A saved token connects at load, no click ; if that fails the settings form shows the error, and nothing retries by itself. No saved token and no link : the page sends you to <https://github.com/meitogi/minidebrid>. `…/minidebrid/#setup` always shows the form instead. |
+| Settings | Token (hidden ; the eye button shows it) + relay URL, kept in this browser's localStorage. **Se connecter**. **Déconnecter** comes back here and stays here. |
 | Connection | Progress, then the ICE path : `LAN direct`, `P2P direct (srflx/…)` from outside, or `P2P direct (IPv6/public)` when both ends have a public IPv6 (typical on 4G), `TURN (relay)` never (no TURN server). |
 | Magnets | Ready ones first. **Actualiser** re-reads them ; nothing polls Alldebrid in the background (limit 12 req/s, 600/min). |
 | Files | Real names from Alldebrid. **Télécharger** brings the bytes over the DataChannel from the home server, never through the VPS, with a progress bar and **Annuler** ; the way it reaches the disk depends on the browser (table below, named under the magnet's title). In a browser with no P2P mode, **Télécharger** instead starts the browser's own download of the stream link with `?dl=1`, through the tunnel. **Copier le lien** copies a stream link valid 7 days (VLC, any player) and confirms with « Copié ✓ » ; **Voir le lien** shows it with its expiry. |
@@ -91,9 +94,16 @@ Service worker mode needs the tab to stay open (and in the foreground on a phone
 end : the page is what feeds the download. A download paused in the browser for more than a few
 seconds is cancelled (the home server cannot be paused).
 
-"Aucun serveur pour ce jeton" means no server is registered on the relay
-under the id derived from that token : the token is wrong, or the home
-server is down or not connected to the relay.
+« Aucun serveur sur le relay » means the home server is down or not
+connected to the relay ; « Jeton refusé par le serveur » means the server
+was reached and does not know the token (mistyped, or revoked).
+
+The setup link **is** the credential : whoever reads the message holds the
+token until it is revoked. The token sits after `#`, which browsers never
+send to GitHub's servers, and the page removes it from the address bar ; the
+browser's history (and its sync) can still hold the full link. The redirect only
+keeps casual visitors out of the form — the app's code is public and
+`#setup` opens it ; the server's token check is the only gate.
 
 ## Where each command runs
 
@@ -102,6 +112,7 @@ server is down or not connected to the relay.
 | `wtf debrid test`, `npm --prefix web ci / test / run build / run dev` | **devcontainer** | Offline. `web/node_modules` holds per-platform binaries (Rolldown, Lightning CSS) for the platform that ran `npm ci` : run every `web/` npm command on the same side, here. CI installs its own. |
 | `wtf debrid test-live` | devcontainer or host, **home connection only** | Calls Alldebrid with the real key. |
 | `wtf debrid agent …` / `wtf debrid start` (macOS, native under launchd / foreground) or `wtf debrid up` / `logs` (Linux, container), frpc paste | **host**, home machine | Must share the home IP ; frpc lives outside this repo. On macOS, Docker Desktop's VM hides the Mac's addresses from WebRTC (GUIDE § 5), and launchd only exists there. |
+| `wtf debrid token add / list / revoke` | **host**, home machine (Linux : `docker exec`, GUIDE § 7) | Writes the token store next to the server ; `add` and `list` print live setup links. |
 | `wtf signal start` / `logs` (relay) | **host**, VPS checkout of `server-kevledev-mini` | VPS infra. |
 | `gh repo create`, `git push`, Pages enablement | **host** | Needs GitHub credentials. |
 | HTTPS checks (`curl https://…du.ranchchoco.boo`) | **host** | The devcontainer firewall blocks the VPS. |
