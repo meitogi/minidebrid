@@ -37,6 +37,14 @@
   let transfers = $state({}); // link → {received, size, state, error}
   let links = $state({}); // link → {url, expires, copied}
   let downloading = $state(null); // link of the running P2P download
+  let notice = $state(null); // {text, kind} : end-of-transfer banner (a P2P save shows in no browser list)
+  let noticeTimer = null;
+
+  function notify(text, kind = 'ok') {
+    clearTimeout(noticeTimer);
+    notice = { text, kind };
+    noticeTimer = setTimeout(() => (notice = null), 6000);
+  }
 
   const saveSupported = canSaveToDisk();
 
@@ -119,7 +127,7 @@
     return links[link];
   }
 
-  async function copyVlc(file) {
+  async function copyLink(file) {
     error = '';
     try {
       const entry = await streamLink(file);
@@ -134,10 +142,16 @@
     }
   }
 
-  async function prepareAttachment(file) {
+  /** No streamed write to disk here : the stream link with ?dl=1, started right away. */
+  async function downloadDirect(file) {
     error = '';
     try {
-      await streamLink(file);
+      const entry = await streamLink(file);
+      const a = document.createElement('a');
+      a.href = attachmentUrl(entry.url);
+      document.body.append(a);
+      a.click();
+      a.remove();
     } catch (e) {
       error = describe(e);
     }
@@ -155,11 +169,18 @@
         t.size = size || file.size;
       });
       if (outcome === 'aborted') delete transfers[link];
-      else transfers[link].state = outcome === 'end' ? 'terminé' : 'annulé';
+      else if (outcome === 'end') {
+        transfers[link].state = 'terminé';
+        notify(`« ${file.name} » enregistré`);
+      } else {
+        transfers[link].state = 'annulé';
+        notify(`« ${file.name} » annulé`, 'muted');
+      }
     } catch (e) {
       const t = transfers[link];
       t.state = 'erreur';
       t.error = describe(e);
+      notify(`« ${file.name} » : échec du téléchargement`, 'error');
     } finally {
       downloading = null;
     }
@@ -228,7 +249,7 @@
         <h2 class="magnet-name">{magnet.filename}</h2>
       </div>
       {#if !saveSupported}
-        <p class="muted">Ce navigateur ne sait pas écrire un fichier en flux : le téléchargement passe par le lien direct.</p>
+        <p class="muted">Ce navigateur ne sait pas écrire un fichier en flux : le téléchargement passe par le lien direct (via le tunnel).</p>
       {/if}
       <ul class="list">
         {#each files as f (f.link)}
@@ -240,12 +261,10 @@
             <div class="actions">
               {#if saveSupported}
                 <button class="small dl-p2p" onclick={() => downloadP2P(f)} disabled={!!downloading}>Télécharger (P2P)</button>
-              {:else if l}
-                <a class="button small dl-link" href={attachmentUrl(l.url)}>Télécharger (lien direct)</a>
               {:else}
-                <button class="small dl-prepare" onclick={() => prepareAttachment(f)}>Télécharger (lien direct)</button>
+                <button class="small dl-direct" onclick={() => downloadDirect(f)}>Télécharger</button>
               {/if}
-              <button class="small secondary vlc" onclick={() => copyVlc(f)}>Lien VLC</button>
+              <button class="small secondary copy-link" onclick={() => copyLink(f)}>Copier le lien</button>
               {#if downloading === f.link}
                 <button class="small danger" onclick={() => session.cancel()}>Annuler</button>
               {/if}
@@ -260,6 +279,9 @@
             {#if l}
               <div class="link">
                 <span class="hint">{l.copied ? 'copié' : 'lien'} · expire le {formatDate(l.expires)}</span>
+                {#if !saveSupported}
+                  · <a class="dl-link" href={attachmentUrl(l.url)}>relancer le téléchargement</a>
+                {/if}
                 <input class="url" readonly value={l.url} onfocus={(e) => e.currentTarget.select()} />
               </div>
             {/if}
@@ -267,6 +289,9 @@
         {/each}
       </ul>
     </section>
+  {/if}
+  {#if notice}
+    <div class="notice {notice.kind}" role="status">{notice.text}</div>
   {/if}
 </main>
 
@@ -303,8 +328,11 @@
   .meta { color: #9aa0aa; font-size: 12px; display: block; }
   .ready { color: #7ff0b0; }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-  .progress { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; color: #9aa0aa; flex-wrap: wrap; }
-  progress { flex: 1 1 160px; }
+  .progress { margin-top: 6px; font-size: 12px; color: #9aa0aa; font-variant-numeric: tabular-nums; }
+  progress { display: block; width: 100%; margin-bottom: 2px; }
+  .notice { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); max-width: calc(100% - 32px); padding: 10px 14px; border-radius: 8px; background: #0e3a24; color: #7ff0b0; font-size: 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); overflow-wrap: anywhere; }
+  .notice.muted { background: #2a2f3a; color: #e6e6e6; }
+  .notice.error { background: #3a0e0e; color: #f08f8f; }
   .link { margin-top: 6px; }
   .hint { font-size: 12px; color: #9aa0aa; }
 </style>
