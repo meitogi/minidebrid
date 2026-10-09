@@ -123,7 +123,7 @@
     const cached = links[link];
     if (cached && cached.expires - Date.now() > 60_000) return cached;
     const r = await session.streamUrl(link, file.name);
-    links[link] = { url: r.url, expires: r.expires, copied: false, shown: false, started: false };
+    links[link] = { url: r.url, expires: r.expires, copied: false, shown: false };
     return links[link];
   }
 
@@ -163,7 +163,6 @@
       document.body.append(a);
       a.click();
       a.remove();
-      entry.started = true;
     } catch (e) {
       error = describe(e);
     }
@@ -275,9 +274,6 @@
                 <button class="small dl-p2p" onclick={() => downloadP2P(f)} disabled={!!downloading}>Télécharger (P2P)</button>
               {:else}
                 <button class="small dl-direct" onclick={() => downloadDirect(f)}>Télécharger</button>
-                {#if l?.started}
-                  <a class="small dl-link" href={attachmentUrl(l.url)}>relancer le téléchargement</a>
-                {/if}
               {/if}
               <button class="small secondary copy-link" onclick={() => copyLink(f)}>{l?.copied ? 'Copié ✓' : 'Copier le lien'}</button>
               <button class="small secondary show-link" onclick={() => toggleLink(f)}>{l?.shown ? 'Masquer le lien' : 'Voir le lien'}</button>
@@ -348,5 +344,4 @@
   .notice.error { background: #3a0e0e; color: #f08f8f; }
   .link { margin-top: 6px; }
   .hint { font-size: 12px; color: #9aa0aa; }
-  .dl-link { align-self: center; font-size: 12px; color: #9ec5ff; }
 </style>
