@@ -12,7 +12,7 @@ server, the relay and the stream router. Publishing the webapp is in
 | Live test (`wtf debrid test-live`) | devcontainer or host, **home connection only** | calls Alldebrid with the real key |
 | DNS records | Cloudflare dashboard | — |
 | Relay + router (`wtf signal …`) | VPS, `server-kevledev-mini` checkout | VPS infra |
-| Server container (`wtf debrid up`) | home machine | must share the home IP |
+| Server (`wtf debrid start` on macOS, `wtf debrid up` on Linux) | home machine | must share the home IP |
 | frpc proxy | home machine, frpc directory | outside both repos |
 | HTTPS checks (`curl`) | host | the devcontainer firewall blocks the VPS |
 
@@ -97,16 +97,43 @@ wtf traefik certs
   shows `TRAEFIK DEFAULT CERT`, the DNS challenge failed : read the `error`
   lines.
 
-## 5. Home — the server container
+## 5. Home — the server
 
-From this repo on the home machine :
+How it runs depends on the home machine's OS.
+
+**macOS — run it natively, not in Docker.** Docker Desktop runs containers
+in a Linux VM : even with `network_mode: host` the container only sees the
+VM's addresses (`192.168.65.x`), never the Mac's LAN IP, so WebRTC finds no
+path (the offer is answered, then the browser times out after 20 s). From
+this repo :
+
+```sh
+docker compose -p debrid-remote -f deploy/compose.yml down
+npm --prefix server ci
+wtf debrid start
+```
+
+The `down` matters if the container was ever started : two servers would
+announce the same peer id on the relay. If the macOS firewall is on, allow
+the node binary explicitly (it is per binary : redo it after a node upgrade) :
+
+```sh
+NODE_BIN="$(node -p process.execPath)"
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add "$NODE_BIN"
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp "$NODE_BIN"
+```
+ `wtf debrid start` runs in the foreground (Ctrl-C
+stops it) ; starting it at login is not covered yet.
+
+**Linux — the container.** `deploy/compose.yml` uses `network_mode: host`,
+which on Linux is the machine's real network :
 
 ```sh
 wtf debrid up
 wtf debrid logs
 ```
 
-Expected in the logs :
+Expected in the output (or the logs) :
 
 ```
 http: listening on :8098
@@ -117,27 +144,27 @@ A repeating `relay: error … retry in …` means `RELAY_URL` is wrong or step 4
 is not reachable yet. The server keeps retrying with backoff (up to 30 s),
 so it reconnects on its own once the relay is up.
 
-The container runs with `network_mode: host` : WebRTC needs the machine's
-real LAN and public addresses, which a bridge network hides (the browser's
-offer is answered, then the connection times out after 20 s). It listens on
-the host's `:8098` (HTTP) and on UDP `ICE_PORTS` (WebRTC) ; if the machine
-has a firewall (ufw…), allow both.
+Either way the server listens on `:8098` (HTTP) and on UDP `ICE_PORTS`
+(WebRTC) on the machine itself ; if it has a firewall (ufw, the macOS
+firewall…), allow both. A bridge network is not an option : it hides the
+machine's addresses from WebRTC the same way the Docker Desktop VM does.
 
 ## 6. Home — frpc
 
-First check that frpc can reach the server on the host (the server runs
-with `network_mode: host`) :
+The server is not on frpc's Docker network (it runs natively on macOS, or
+with `network_mode: host` on Linux), so frpc reaches it on the machine
+itself. `localIP` in the snippet is `host.docker.internal`, which Docker
+Desktop resolves to the Mac. On Linux, use the gateway of frpc's network
+instead (`docker inspect frpc`, field `Gateway`, e.g. `172.18.0.1`) or the
+machine's LAN IP. First check that frpc can reach it :
 
 ```sh
-docker exec frpc wget -qS -O /dev/null http://172.18.0.1:8098/s/x/y
+docker exec frpc wget -qS -O /dev/null http://host.docker.internal:8098/s/x/y
 ```
 
 `HTTP/1.1 403 Forbidden` : reachable (the bogus token is rejected).
-`Connection refused` or a timeout : a host firewall blocks Docker → host on
-`8098` ; allow it from `172.18.0.0/16`, or use the machine's LAN IP as
-`localIP`. `172.18.0.1` is the gateway of frpc's network
-(`docker inspect frpc --format '{{json .NetworkSettings.Networks}}'`) ; it
-changes if that network is recreated with another subnet.
+`Connection refused` or a timeout : the server is not running, or a firewall
+blocks `8098`.
 
 Then, from the frpc compose directory, back up `frpc.toml`, append
 [deploy/frpc-proxy.toml](deploy/frpc-proxy.toml), and restart frpc (`up -d`
@@ -171,8 +198,9 @@ success` on `debrid-remote` in the frpc logs.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Container restarting | a required variable is missing | `wtf debrid logs` names it |
-| "Pas de connexion après 20 s" although the server logs `answer sent` | no ICE path : the container is not on the host network, or a firewall drops UDP `ICE_PORTS` | keep `network_mode: host` in `deploy/compose.yml` ; allow UDP `ICE_PORTS` in the machine's firewall |
-| Stream link answers `502` from Traefik | frpc cannot reach `:8098` on the host | check `localIP` in `frpc.toml` (gateway of frpc's network or LAN IP) and that the host firewall lets Docker reach `8098` |
+| "Pas de connexion après 20 s" although the server logs `answer sent` | no ICE path : server in Docker on macOS (VM), container not on the host network (Linux), or a firewall dropping UDP `ICE_PORTS` | macOS : run it natively (§ 5) ; Linux : keep `network_mode: host` ; allow UDP `ICE_PORTS` |
+| "Pas de connexion après 20 s", server logs `answer sent`, nothing reaches it | a VPN active on the browser's device (or the server's) : the browser's candidates and checks go into the tunnel | turn the VPN off on both ends ; Tailscale alone did not get in the way |
+| Stream link answers `502` from Traefik | frpc cannot reach `:8098` on the host | check `localIP` in `frpc.toml` (`host.docker.internal` on macOS, gateway of frpc's network or LAN IP on Linux), that the server runs, and that no firewall blocks `8098` |
 | Stream link answers `403` with a real link | token expired (7 days) or `APP_TOKEN` changed | ask the webapp for a new link |
 | Stream link answers `502` | Alldebrid refused the unlock | `wtf debrid logs` shows the Alldebrid error |
 

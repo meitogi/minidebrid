@@ -1,4 +1,5 @@
-# Home machine : docker compose -p debrid-remote -f deploy/compose.yml up -d --build
+# Linux home machine only : docker compose -p debrid-remote -f deploy/compose.yml up -d --build
+# On macOS run the server natively (GUIDE § 5) : Docker Desktop's VM hides the Mac's addresses.
 # network_mode: host : werift must see the machine's real LAN and public addresses for WebRTC ICE.
 # On a bridge network it only knows its 172.x container address, and browsers got no usable path
 # (offer answered, then a 20 s timeout). frpc reaches the HTTP stream server on the host's :8098
