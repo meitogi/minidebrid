@@ -73,7 +73,23 @@ Settings → Pages → Source to **GitHub Actions**, then Actions → **pages** 
 | Settings | Token + relay URL, kept in this browser's localStorage. **Se connecter**. |
 | Connection | Progress, then the ICE path : `LAN direct`, `P2P direct (srflx/…)` from outside, or `P2P direct (IPv6/public)` when both ends have a public IPv6 (typical on 4G), `TURN (relay)` never (no TURN server). |
 | Magnets | Ready ones first. **Actualiser** re-reads them ; nothing polls Alldebrid in the background (limit 12 req/s, 600/min). |
-| Files | Real names from Alldebrid. **Télécharger (P2P)** streams the file to disk through the DataChannel (Chromium : `showSaveFilePicker`) with a progress bar and **Annuler**, which leaves no file behind. Browsers without that API (Firefox, Safari, mobile, Brave unless `brave://flags/#file-system-access-api` is on) get **Télécharger** instead : one click starts the browser's own download of the stream link with `?dl=1`, through the tunnel. **Copier le lien** copies a stream link valid 7 days (VLC, any player) and confirms with « Copié ✓ » ; **Voir le lien** shows it with its expiry. |
+| Files | Real names from Alldebrid. **Télécharger (P2P)** brings the bytes over the DataChannel from the home server, never through the VPS, with a progress bar and **Annuler** ; the way it reaches the disk depends on the browser (table below, named under the magnet's title). A browser with no P2P mode gets **Télécharger** instead : one click starts the browser's own download of the stream link with `?dl=1`, through the tunnel. **Copier le lien** copies a stream link valid 7 days (VLC, any player) and confirms with « Copié ✓ » ; **Voir le lien** shows it with its expiry. |
+
+P2P download mode per browser — first one that works, chosen per file :
+
+| Browser | Mode | What you see |
+|---|---|---|
+| Chrome, Edge (desktop) | download manager (service worker) | the browser's Downloads list with its own progress ; cancelling there cancels the transfer |
+| Brave (desktop) | download manager ; with `brave://flags/#file-system-access-api` on, still the download manager | same as Chrome |
+| Chrome Android (132+) | save picker (`showSaveFilePicker`) | you choose where the file goes ; **Annuler** leaves no file behind |
+| Firefox (desktop, Android) | download manager | Downloads list ; in a private window too |
+| Safari macOS, iOS / iPadOS (15.4+, not 18.2–18.3) | download manager | Downloads list ; needs the file size, else the next row |
+| Safari / iOS 26+ without a known size | temporary copy (origin private file system), then download | progress here, « préparation du téléchargement », then the file appears ; the copy is deleted later (needs as much free browser storage as the file) |
+| Anything else : Safari 15.4–25 without a known size, iOS 18.2–18.3, Safari before 15.4, a private window with neither service worker nor storage | `?dl=1` link | **Télécharger**, through the tunnel |
+
+Service worker mode needs the tab to stay open (and in the foreground on a phone) until the
+end : the page is what feeds the download. A download paused in the browser for more than a few
+seconds is cancelled (the home server cannot be paused).
 
 "Aucun serveur pour ce jeton" means no server is registered on the relay
 under the id derived from that token : the token is wrong, or the home

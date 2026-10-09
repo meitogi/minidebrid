@@ -1,6 +1,7 @@
 <script>
   import { connect } from './lib/peer.js';
-  import { attachmentUrl, canSaveToDisk, saveToDisk } from './lib/download.js';
+  import { attachmentUrl, probe, save } from './lib/download.js';
+  import { chooseMode } from './lib/save-mode.js';
   import { flattenFiles, formatSize, sortMagnets } from './lib/util.js';
 
   const DEFAULT_RELAY = 'wss://signal.du.ranchchoco.boo';
@@ -37,7 +38,8 @@
   let transfers = $state({}); // link → {received, size, state, error}
   let links = $state({}); // link → {url, expires, copied}
   let downloading = $state(null); // link of the running P2P download
-  let notice = $state(null); // {text, kind} : end-of-transfer banner (a P2P save shows in no browser list)
+  let notice = $state(null); // {text, kind} : end-of-transfer banner, every mode
+  let caps = $state(null); // what this browser can do for a P2P save (lib/download.js probe)
   let noticeTimer = null;
 
   function notify(text, kind = 'ok') {
@@ -46,7 +48,17 @@
     noticeTimer = setTimeout(() => (notice = null), 6000);
   }
 
-  const saveSupported = canSaveToDisk();
+  // Before the probe answers, nothing qualifies : the link mode.
+  const NO_CAPS = { picker: false, android: false, sw: false, opfs: false, webkit: null };
+  probe().then((p) => (caps = p), () => (caps = NO_CAPS));
+  const modeFor = (size) => chooseMode(caps ?? NO_CAPS, size).mode;
+  const usualMode = $derived(modeFor(1)); // a file of known size : what this browser mostly uses
+  const HINTS = {
+    picker: 'Téléchargement P2P : enregistrement direct, vous choisissez l’emplacement.',
+    sw: 'Téléchargement P2P : via le gestionnaire de téléchargements du navigateur.',
+    opfs: 'Téléchargement P2P : copie temporaire dans le navigateur, puis téléchargement.',
+    link: 'Ce navigateur ne sait pas écrire un fichier en flux : le téléchargement passe par le lien direct (via le tunnel).',
+  };
 
   $effect(() => store(KEY_TOKEN, token));
   $effect(() => store(KEY_RELAY, relay));
@@ -168,16 +180,17 @@
     }
   }
 
-  async function downloadP2P(file) {
+  async function downloadP2P(file, mode) {
     const link = file.link;
     error = '';
     downloading = link;
     transfers[link] = { received: 0, size: file.size, state: 'en cours' };
     try {
-      const outcome = await saveToDisk(session, file, (received, size) => {
+      const outcome = await save(session, file, mode, (received, size, phase) => {
         const t = transfers[link];
         t.received = received;
         t.size = size || file.size;
+        if (phase === 'handoff') t.state = 'préparation du téléchargement';
       });
       if (outcome === 'aborted') delete transfers[link];
       else if (outcome === 'end') {
@@ -201,7 +214,7 @@
   const formatDate = (ms) => new Date(ms).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
 </script>
 
-<main>
+<main data-save-mode={caps ? usualMode : ''}>
   <header>
     <h1>Debrid Remote</h1>
     {#if session}
@@ -259,19 +272,18 @@
         <button class="small secondary" onclick={() => { view = 'magnets'; }} disabled={!!downloading}>← Magnets</button>
         <h2 class="magnet-name">{magnet.filename}</h2>
       </div>
-      {#if !saveSupported}
-        <p class="muted">Ce navigateur ne sait pas écrire un fichier en flux : le téléchargement passe par le lien direct (via le tunnel).</p>
-      {/if}
+      <p class="muted save-mode" data-mode={usualMode}>{HINTS[usualMode]}</p>
       <ul class="list">
         {#each files as f (f.link)}
           {@const t = transfers[f.link]}
           {@const l = links[f.link]}
+          {@const mode = modeFor(f.size)}
           <li class="file">
             <div class="name">{f.path}</div>
             <div class="meta">{formatSize(f.size)}</div>
             <div class="actions">
-              {#if saveSupported}
-                <button class="small dl-p2p" onclick={() => downloadP2P(f)} disabled={!!downloading}>Télécharger (P2P)</button>
+              {#if mode !== 'link'}
+                <button class="small dl-p2p" data-mode={mode} onclick={() => downloadP2P(f, mode)} disabled={!!downloading}>Télécharger (P2P)</button>
               {:else}
                 <button class="small dl-direct" onclick={() => downloadDirect(f)}>Télécharger</button>
               {/if}

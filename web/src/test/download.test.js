@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { saveToDisk } from '../lib/download.js';
+import { save } from '../lib/download.js';
+
+const saveToDisk = (session, file) => save(session, file, 'picker');
 
 // The picker creates the file on disk as soon as a location is chosen ; the writable only buffers
 // into a swap file until close(). The double keeps to the surface Chromium exposes and download.js
@@ -48,6 +50,18 @@ test('end : the file stays, closed with every byte', async () => {
   const disk = fakeDisk();
   assert.equal(await saveToDisk(fakeSession(), file), 'end');
   assert.deepEqual(disk, { exists: true, bytes: 8, closed: true, aborted: false });
+});
+
+test('picker closed : aborted, nothing asked of the server, no file', async () => {
+  globalThis.window = {
+    async showSaveFilePicker() {
+      throw Object.assign(new Error('closed'), { name: 'AbortError' });
+    },
+  };
+  let calls = 0;
+  const session = { cancel() { calls++; }, async download() { calls++; return 'end'; } };
+  assert.equal(await saveToDisk(session, file), 'aborted');
+  assert.equal(calls, 0);
 });
 
 test('cancelled : no file left on disk, not even an empty one', async () => {
