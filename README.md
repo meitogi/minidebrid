@@ -73,7 +73,7 @@ Settings → Pages → Source to **GitHub Actions**, then Actions → **pages** 
 | Settings | Token + relay URL, kept in this browser's localStorage. **Se connecter**. |
 | Connection | Progress, then the ICE path : `LAN direct`, `P2P direct (srflx/…)` from outside, `TURN (relay)` never (no TURN server). |
 | Magnets | Ready ones first. **Actualiser** re-reads them ; nothing polls Alldebrid in the background (limit 12 req/s, 600/min). |
-| Files | Real names from Alldebrid. **Télécharger (P2P)** streams the file to disk through the DataChannel (Chromium : `showSaveFilePicker`) with a progress bar and **Annuler**. Browsers without that API (Firefox, Safari, mobile, Brave unless `brave://flags/#file-system-access-api` is on) get **Télécharger** instead : one click starts the browser's own download of the stream link with `?dl=1`, through the tunnel. **Copier le lien** copies a stream link valid 7 days (VLC, any player). |
+| Files | Real names from Alldebrid. **Télécharger (P2P)** streams the file to disk through the DataChannel (Chromium : `showSaveFilePicker`) with a progress bar and **Annuler**. Browsers without that API (Firefox, Safari, mobile, Brave unless `brave://flags/#file-system-access-api` is on) get **Télécharger** instead : one click starts the browser's own download of the stream link with `?dl=1`, through the tunnel. **Copier le lien** copies a stream link valid 7 days (VLC, any player) and confirms with « Copié ✓ » ; **Voir le lien** shows it with its expiry. |
 
 "Aucun serveur pour ce jeton" means no server is registered on the relay
 under the id derived from that token : the token is wrong, or the home
