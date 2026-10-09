@@ -1,12 +1,13 @@
 <script>
+  import { onMount } from 'svelte';
+  import { DEFAULT_RELAY, KEY_RELAY, KEY_TOKEN, parseHash } from './lib/landing.js';
   import { connect } from './lib/peer.js';
   import { attachmentUrl, probe, save } from './lib/download.js';
   import { chooseMode } from './lib/save-mode.js';
   import { flattenFiles, formatSize, sortMagnets } from './lib/util.js';
 
-  const DEFAULT_RELAY = 'wss://signal.du.ranchchoco.boo';
-  const KEY_TOKEN = 'debrid-remote:token';
-  const KEY_RELAY = 'debrid-remote:relay';
+  /** main.js : 'link' | 'setup' | 'app' (lib/landing.js) */
+  let { start: landingKind } = $props();
 
   function load(key, fallback) {
     try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -17,11 +18,10 @@
 
   const ERRORS = {
     relay: 'Relay injoignable.',
-    // The peerId derives from the token : a wrong token addresses a peerId nobody registered.
-    absent: 'Aucun serveur pour ce jeton : jeton incorrect, ou serveur maison arrêté / hors du relay.',
+    absent: 'Aucun serveur sur le relay : serveur maison arrêté, ou pas encore reconnecté au relay.',
     timeout: 'Pas de connexion après 20 s : serveur muet ou réseau bloqué.',
     ice: 'Aucun chemin réseau direct vers le serveur (ICE échoué).',
-    refused: 'Jeton refusé par le serveur.', // only when the peerId matches but the secret does not
+    refused: 'Jeton refusé par le serveur : inconnu ou révoqué.',
     closed: 'Connexion au serveur perdue.',
   };
 
@@ -40,6 +40,7 @@
   let downloading = $state(null); // link of the running P2P download
   let notice = $state(null); // {text, kind} : end-of-transfer banner, every mode
   let caps = $state(null); // what this browser can do for a P2P save (lib/download.js probe)
+  let showToken = $state(false);
   let noticeTimer = null;
 
   function notify(text, kind = 'ok') {
@@ -65,6 +66,20 @@
 
   $effect(() => store(KEY_TOKEN, token));
   $effect(() => store(KEY_RELAY, relay));
+
+  // Connects once at load, never again by itself : after a failure or Déconnecter, the form stays.
+  onMount(() => {
+    if (landingKind === 'link') {
+      const link = parseHash(location.hash);
+      history.replaceState(history.state, '', location.pathname + location.search); // the token leaves the address bar
+      const saved = token.trim();
+      if (!saved || saved === link.token || confirm('Remplacer le jeton enregistré par celui du lien ?')) {
+        token = link.token;
+        if (link.relay) relay = link.relay;
+      }
+    }
+    if (landingKind !== 'setup' && token.trim()) start();
+  });
 
   function describe(e) {
     const known = ERRORS[e.code];
@@ -241,8 +256,17 @@
 
   {#if view === 'settings'}
     <section class="settings">
-      <label for="token">Jeton (APP_TOKEN du serveur)</label>
-      <input id="token" type="password" autocomplete="off" bind:value={token} />
+      <label for="token">Jeton d’accès</label>
+      <div class="secret">
+        <input id="token" type={showToken ? 'text' : 'password'} autocomplete="off" spellcheck="false" bind:value={token} />
+        <button type="button" id="show-token" class="secondary eye" aria-label={showToken ? 'Masquer le jeton' : 'Afficher le jeton'} aria-pressed={showToken} onclick={() => (showToken = !showToken)}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
+            <circle cx="12" cy="12" r="3" />
+            {#if showToken}<line x1="3" y1="3" x2="21" y2="21" />{/if}
+          </svg>
+        </button>
+      </div>
       <label for="relay">Relay de signalisation</label>
       <input id="relay" type="url" bind:value={relay} />
       <button id="connect" onclick={start} disabled={!token.trim() || !relay.trim()}>Se connecter</button>
@@ -339,6 +363,8 @@
   input { width: 100%; background: #0f1115; border: 1px solid #2a2f3a; color: #e6e6e6; border-radius: 6px; padding: 8px; font: 13px/1.4 ui-monospace, monospace; }
   button, .button { background: #2a6df4; color: #fff; border: 0; border-radius: 6px; padding: 8px 13px; font: 600 13px system-ui; cursor: pointer; text-decoration: none; display: inline-block; }
   #connect { margin-top: 14px; }
+  .secret { display: flex; gap: 6px; }
+  .eye { padding: 0 10px; line-height: 0; }
   .small { padding: 5px 11px; font-size: 12px; }
   .secondary { background: #2a2f3a; }
   .danger { background: #8a2b2b; }
