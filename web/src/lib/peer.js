@@ -7,12 +7,11 @@
 //   id-less {t:'end'} | {t:'cancelled'} | {t:'error', e} ; messages over 60 KB arrive as
 //   {frag} frames, the last one {frag, last:true}.
 
-import { peerIdFromToken } from './util.js';
-
 const STUN = 'stun:stun.l.google.com:19302';
 const GATHER_CAP_MS = 3000;
 const CONNECT_CAP_MS = 20_000;
 const PING_MS = 5000;
+const SERVER_NAME = 'debrid-remote'; // server/src/peer.js hello : {name, kind: 'server'}, random id
 
 /** Error with a `code` the UI maps to a message : relay | absent | timeout | ice | refused | closed. */
 function fail(code, message) {
@@ -85,13 +84,14 @@ async function icePath(pc) {
 }
 
 /**
- * Connects to the server behind `token` through the relay. Resolves once the token is accepted
+ * Connects through the relay to the first `debrid-remote` server it lists, then authenticates
+ * with `token`. Resolves once the token is accepted
  * with a session : {peerId, path, call(m, p), ad(path, fields), streamUrl(link, name),
  * download(link, sink), cancel(), close()}. Rejects with an Error carrying `code`.
  * onStatus(text) reports progress ; onClose(error) fires once if an open session drops.
  */
 export async function connect({ relayUrl, token, stun = STUN, onStatus = () => {}, onClose = () => {} }) {
-  const peerId = await peerIdFromToken(token);
+  let peerId = null; // the server's relay id, read from the relay's welcome list
   const myId = 'web-' + crypto.randomUUID();
 
   let ws = null;
@@ -192,7 +192,7 @@ export async function connect({ relayUrl, token, stun = STUN, onStatus = () => {
   }
 
   const session = {
-    peerId,
+    get peerId() { return peerId; },
     path: null,
     call: (m, p) => call(m, p),
     ad: (path, fields = {}) => call('ad', { path, fields }),
@@ -283,9 +283,10 @@ export async function connect({ relayUrl, token, stun = STUN, onStatus = () => {
       try { msg = JSON.parse(event.data); } catch { return; }
       const type = msg.type;
       if (type === 'welcome') {
-        let present = false;
-        for (const p of msg.peers ?? []) if (p.id === peerId) present = true;
-        if (!present) return abort(fail('absent', `serveur absent du relay (${peerId})`));
+        for (const p of msg.peers ?? []) {
+          if (p.kind === 'server' && p.name === SERVER_NAME) { peerId = p.id; break; }
+        }
+        if (!peerId) return abort(fail('absent', 'aucun serveur debrid-remote sur le relay'));
         offer().catch((e) => abort(fail('ice', `négociation impossible : ${e.message}`)));
       } else if (type === 'signal' && msg.to === myId && msg.from === peerId && msg.kind === 'answer') {
         onStatus('réponse reçue, connexion ICE…');

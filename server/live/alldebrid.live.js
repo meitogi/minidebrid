@@ -1,11 +1,13 @@
 // Live test against the real Alldebrid account, through the production modules :
 // real werift DataChannel + RPC (auth, ad passthrough, P2P download) and the local stream proxy.
-// Reads ALLDEBRID_APIKEY and APP_TOKEN from server/.env ; skipped when either is missing.
+// Reads ALLDEBRID_APIKEY from server/.env ; skipped when it is missing. The token and the stream
+// secret are random, local to this run (the loopback below never touches the relay).
 // Run it only from the home connection (Alldebrid bans accounts seen from several IPs) :
 //   npm run test:live        (or: wtf debrid test-live)
 // At most 7 sequential Alldebrid calls ; downloads one small file (the smallest ≥ 1 MB), never
 // uploads or deletes.
 
+import { randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
@@ -17,8 +19,8 @@ import { createRpc } from '../src/rpc.js';
 import { streamUrlBuilder } from '../src/stream-token.js';
 
 try { process.loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), '..', '.env')); } catch { /* skip below */ }
-const token = process.env.APP_TOKEN;
-const missing = ['ALLDEBRID_APIKEY', 'APP_TOKEN'].filter((n) => !process.env[n]);
+const token = randomBytes(32).toString('hex');
+const missing = ['ALLDEBRID_APIKEY'].filter((n) => !process.env[n]);
 
 const FULL_DOWNLOAD_MAX = 20 * 1024 * 1024; // above this, cancel after PARTIAL bytes
 const PARTIAL = 2 * 1024 * 1024;
@@ -106,7 +108,7 @@ test('live : RPC passthrough, P2P download and stream proxy agree byte for byte'
   const proxy = createHttpServer({ secret: token, unlock }).listen(0);
   await new Promise((r) => proxy.once('listening', r));
   const streamUrl = streamUrlBuilder(`http://127.0.0.1:${proxy.address().port}`, token);
-  const client = await connect({ token, ad, streamUrl, openDownload });
+  const client = await connect({ authenticate: (t) => (t === token ? 'live' : null), ad, streamUrl, openDownload });
   try {
     const user = (await client.call('ad', { path: '/v4/user' })).user;
     assert.equal(typeof user?.username, 'string');

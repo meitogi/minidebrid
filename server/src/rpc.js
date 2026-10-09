@@ -4,21 +4,18 @@
 // the receiver joins the frag strings and parses the result. werift refuses to send anything
 // above the remote's max-message-size (64 KB for werift, 256 KB for Chrome).
 
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { sendStream } from './chunker.js';
 
 const AD_PATH = /^\/v4(\.1)?\//;
-const digest = (s) => createHash('sha256').update(String(s)).digest();
 export const FRAME_MAX = 60 * 1024;
 const FRAG_CHARS = 8192; // ≤ 6 bytes per char once JSON-escaped : a frame stays under 64 KB
 
 /**
- * deps : token (APP_TOKEN), ad(path, fields), streamUrl(link, name) → {url, expires},
+ * deps : authenticate(token) → token name or null (access.js), ad(path, fields), streamUrl(link, name) → {url, expires},
  * openDownload(link, signal) → {size, body: ReadableStream}.
  * The caller wires channel.onMessage to `onMessage` and channel close to `dispose`.
  */
-export function createRpc(channel, { token, ad, streamUrl, openDownload, authTimeoutMs = 5000 }) {
-  const expected = digest(token);
+export function createRpc(channel, { authenticate, ad, streamUrl, openDownload, authTimeoutMs = 5000 }) {
   let authed = false;
   let download = null; // AbortController of the running download
   const timer = setTimeout(() => { if (!authed) channel.close(); }, authTimeoutMs);
@@ -81,7 +78,7 @@ export function createRpc(channel, { token, ad, streamUrl, openDownload, authTim
     if (!authed) {
       if (msg?.t !== 'auth') return;
       clearTimeout(timer);
-      if (!timingSafeEqual(digest(msg.token), expected)) return channel.close();
+      if (!authenticate(msg.token)) return channel.close();
       authed = true;
       return send({ t: 'auth', ok: true });
     }
@@ -98,4 +95,15 @@ export function createRpc(channel, { token, ad, streamUrl, openDownload, authTim
   }
 
   return { onMessage, dispose };
+}
+
+/** Wires a werift DataChannel : RPC, auth against `access` (access.js), release and dispose on close. */
+export function serveChannel(channel, access, deps) {
+  const rpc = createRpc(channel, { ...deps, authenticate: (token) => access.admit(token, channel) });
+  channel.onMessage.subscribe(rpc.onMessage);
+  channel.stateChanged.subscribe((s) => {
+    if (s !== 'closed') return;
+    access.release(channel);
+    rpc.dispose();
+  });
 }

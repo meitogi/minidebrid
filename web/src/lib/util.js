@@ -17,15 +17,6 @@ export function flattenFiles(entries, prefix = '') {
   return files;
 }
 
-/** `srv-` + 16 hex chars of sha256(token) — same value as server/src/peer.js. */
-export async function peerIdFromToken(token) {
-  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-  const bytes = new Uint8Array(hash);
-  let hex = '';
-  for (let i = 0; i < 8; i++) hex += bytes[i].toString(16).padStart(2, '0');
-  return 'srv-' + hex;
-}
-
 const UNITS = ['o', 'Ko', 'Mo', 'Go', 'To'];
 
 /** 1536 → '1,5 Ko' ; binary multiples, French units. */

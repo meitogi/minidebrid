@@ -2,36 +2,37 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createAccess } from './access.js';
 import { ad, openDownload, unlock } from './alldebrid.js';
+import { missingEnv, streamSecret } from './config.js';
 import { createHttpServer } from './http.js';
-import { parsePortRange, peerIdFromToken, startPeer } from './peer.js';
-import { createRpc } from './rpc.js';
+import { parsePortRange, startPeer } from './peer.js';
+import { serveChannel } from './rpc.js';
 import { streamUrlBuilder } from './stream-token.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 try { process.loadEnvFile(join(ROOT, '.env')); } catch { /* env comes from the container */ }
 
 const env = process.env;
-for (const name of ['ALLDEBRID_APIKEY', 'APP_TOKEN', 'PUBLIC_URL', 'RELAY_URL']) {
-  if (!env[name]) {
-    console.error(`${name} missing — fill it in .env (see .env.example)`);
-    process.exit(1);
-  }
+for (const name of missingEnv(env)) {
+  console.error(`${name} missing — fill it in .env (see .env.example)`);
+  process.exitCode = 1;
 }
-const token = env.APP_TOKEN;
-const httpPort = Number(env.HTTP_PORT) || 8098;
-const streamUrl = streamUrlBuilder(env.PUBLIC_URL, token);
+if (process.exitCode) process.exit();
 
-createHttpServer({ secret: token, unlock }).listen(httpPort, () => console.log(`http: listening on :${httpPort}`));
+const secret = streamSecret(env);
+const httpPort = Number(env.HTTP_PORT) || 8098;
+const streamUrl = streamUrlBuilder(env.PUBLIC_URL, secret);
+const access = createAccess({ file: env.TOKENS_FILE || join(ROOT, 'data', 'tokens.json'), appToken: env.APP_TOKEN });
+const names = [];
+for (const name in access.tokens()) names.push(name);
+console.log(names.length ? `tokens: ${names.join(', ')}` : 'tokens: none yet — wtf debrid token add <name>');
+
+createHttpServer({ secret, unlock }).listen(httpPort, () => console.log(`http: listening on :${httpPort}`));
 
 startPeer({
   relayUrl: env.RELAY_URL,
-  peerId: peerIdFromToken(token),
   stun: env.STUN ?? 'stun:stun.l.google.com:19302',
   icePortRange: parsePortRange(env.ICE_PORTS),
-  onChannel(channel) {
-    const rpc = createRpc(channel, { token, ad, streamUrl, openDownload });
-    channel.onMessage.subscribe(rpc.onMessage);
-    channel.stateChanged.subscribe((s) => { if (s === 'closed') rpc.dispose(); });
-  },
+  onChannel: (channel) => serveChannel(channel, access, { ad, streamUrl, openDownload }),
 });

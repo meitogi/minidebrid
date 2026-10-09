@@ -1,10 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { flattenFiles, formatSize, peerIdFromToken, sortMagnets } from '../lib/util.js';
-
-test('peerIdFromToken matches the server vector', async () => {
-  assert.equal(await peerIdFromToken('debrid-remote-test-vector'), 'srv-93ae31c007f77a9b');
-});
+import { flattenFiles, formatSize, sortMagnets } from '../lib/util.js';
 
 test('flattenFiles walks nested folders and keeps size and link', () => {
   const tree = [

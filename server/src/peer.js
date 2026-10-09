@@ -1,18 +1,14 @@
 // Relay WebSocket client + werift answerer. Derived from the proto's media-peer-ws-client.js :
-// announces itself as kind=server under a peer id derived from APP_TOKEN, answers routed offers.
+// announces itself as kind=server under a random id, answers routed offers. The webapp finds it by
+// name in the relay's peer list ; the token is checked on the DataChannel (rpc.js).
 
-import { createHash } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { RTCPeerConnection } from 'werift';
 
 const GATHER_CAP_MS = 4000;
 const CONNECT_CAP_MS = 30_000;
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 30_000;
-
-/** `srv-` + 16 hex chars of sha256(token) ; the webapp derives the same id with WebCrypto. */
-export function peerIdFromToken(token) {
-  return 'srv-' + createHash('sha256').update(token).digest('hex').slice(0, 16);
-}
 
 /** '50000-50019' → [50000, 50019] ; anything else → undefined (werift picks ephemeral ports). */
 export function parsePortRange(value) {
@@ -28,8 +24,9 @@ function waitGathering(pc) {
   });
 }
 
-/** Connects to the relay forever ; `onChannel(channel)` gets each opened DataChannel. */
-export function startPeer({ relayUrl, peerId, stun, icePortRange, onChannel }) {
+/** Connects to the relay forever ; `onChannel(channel)` gets each opened DataChannel. Returns the peer id. */
+export function startPeer({ relayUrl, stun, icePortRange, onChannel }) {
+  const peerId = 'srv-' + randomBytes(8).toString('hex');
   const iceServers = stun ? [{ urls: stun }] : [];
   let ws = null;
   let backoff = BACKOFF_MIN_MS;
@@ -88,4 +85,5 @@ export function startPeer({ relayUrl, peerId, stun, icePortRange, onChannel }) {
   }
 
   connect();
+  return peerId;
 }

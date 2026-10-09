@@ -60,7 +60,7 @@ function setup(overrides = {}) {
   const channel = makeChannel();
   const calls = { ad: [] };
   const rpc = createRpc(channel, {
-    token: TOKEN,
+    authenticate: (token) => (token === TOKEN ? 'default' : null),
     ad: async (path, fields) => { calls.ad.push([path, fields]); return { ok: path }; },
     streamUrl: async (link, name) => ({ url: `https://h/s/t/${name}`, expires: 42 }),
     openDownload: async () => { throw new Error('not wired'); },

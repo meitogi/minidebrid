@@ -58,3 +58,20 @@
       test: $bool
   cwd: .
   cmd: sh deploy/macos/agent.sh {{ .action }}{{ if eq .action "logs" }} -n {{ .tail }}{{ if .follow }} -f{{ end }}{{ end }}
+
+- group: debrid
+  name: token
+  desc: |
+    Access tokens of the home server (GUIDE § 7) — run on the home machine.
+      add <name> | list | revoke <name>
+    add and list print setup links : each one is a credential.
+  args:
+    - name: action
+      desc: add, list or revoke
+      required: true
+      test: ^(add|list|revoke)$
+    - name: name
+      desc: Token name, e.g. phone-kevin (add and revoke)
+      default: ""
+  cwd: .
+  cmd: node server/bin/token.js {{ .action }}{{ if .name }} {{ esc .name }}{{ end }}

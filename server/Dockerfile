@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 COPY src ./src
+COPY bin ./bin
 ENV NODE_ENV=production
 USER node
 CMD ["node", "src/index.js"]
