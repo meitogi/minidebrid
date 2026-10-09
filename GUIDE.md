@@ -36,7 +36,7 @@ Fill `server/.env` :
 | `PUBLIC_URL` | `https://debrid.du.ranchchoco.boo` |
 | `RELAY_URL` | `wss://signal.du.ranchchoco.boo` |
 | `HTTP_PORT` | `8098` (frpc's `localPort`) |
-| `ICE_PORTS` | `50000-50019` (must match `deploy/compose.yml`) |
+| `ICE_PORTS` | `50000-50019` (fixed UDP range for WebRTC ; open it if the machine has a firewall) |
 
 `server/.env` is gitignored and kept out of the Docker image.
 
@@ -117,16 +117,30 @@ A repeating `relay: error … retry in …` means `RELAY_URL` is wrong or step 4
 is not reachable yet. The server keeps retrying with backoff (up to 30 s),
 so it reconnects on its own once the relay is up.
 
-The container joins frpc's existing network, `chocoboflix_web` (the `web`
-network of the `chocoboflix` compose project, where frpc and Jellyfin run) ;
-set `WEB_NETWORK` in the shell or in a gitignored `deploy/.env` if yours
-differs (`docker inspect frpc --format '{{json .NetworkSettings.Networks}}'`). It
-publishes UDP `50000-50019` for WebRTC.
+The container runs with `network_mode: host` : WebRTC needs the machine's
+real LAN and public addresses, which a bridge network hides (the browser's
+offer is answered, then the connection times out after 20 s). It listens on
+the host's `:8098` (HTTP) and on UDP `ICE_PORTS` (WebRTC) ; if the machine
+has a firewall (ufw…), allow both.
 
 ## 6. Home — frpc
 
-Append [deploy/frpc-proxy.toml](deploy/frpc-proxy.toml) to the home
-`frpc.toml`, then from the frpc compose directory :
+First check that frpc can reach the server on the host (the server runs
+with `network_mode: host`) :
+
+```sh
+docker exec frpc wget -qS -O /dev/null http://172.18.0.1:8098/s/x/y
+```
+
+`HTTP/1.1 403 Forbidden` : reachable (the bogus token is rejected).
+`Connection refused` or a timeout : a host firewall blocks Docker → host on
+`8098` ; allow it from `172.18.0.0/16`, or use the machine's LAN IP as
+`localIP`. `172.18.0.1` is the gateway of frpc's network
+(`docker inspect frpc --format '{{json .NetworkSettings.Networks}}'`) ; it
+changes if that network is recreated with another subnet.
+
+Then append [deploy/frpc-proxy.toml](deploy/frpc-proxy.toml) to the home
+`frpc.toml` and, from the frpc compose directory :
 
 ```sh
 docker compose up -d frpc
@@ -138,8 +152,8 @@ Check :
 curl -sS -o /dev/null -w '%{http_code}\n' https://debrid.du.ranchchoco.boo/s/x/y
 ```
 
-`403` means the request crossed Traefik → frps:8097 → frpc →
-`debrid-remote:8098`, and the home server rejected the bogus token. A `502`
+`403` means the request crossed Traefik → frps:8097 → frpc → the host's
+`:8098`, and the home server rejected the bogus token. A `502`
 or `404` means frpc has not loaded the proxy : look for `start proxy
 success` on `debrid-remote` in the frpc logs.
 
@@ -148,7 +162,8 @@ success` on `debrid-remote` in the frpc logs.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Container restarting | a required variable is missing | `wtf debrid logs` names it |
-| From 4G the connection stays on "connecting" | Docker's NAT breaks the ICE mapping | in `deploy/compose.yml`, replace `ports` + `networks` with `network_mode: host`, and set frpc's `localIP` to the machine's LAN IP |
+| "Pas de connexion après 20 s" although the server logs `answer sent` | no ICE path : the container is not on the host network, or a firewall drops UDP `ICE_PORTS` | keep `network_mode: host` in `deploy/compose.yml` ; allow UDP `ICE_PORTS` in the machine's firewall |
+| Stream link answers `502` from Traefik | frpc cannot reach `:8098` on the host | check `localIP` in `frpc.toml` (gateway of frpc's network or LAN IP) and that the host firewall lets Docker reach `8098` |
 | Stream link answers `403` with a real link | token expired (7 days) or `APP_TOKEN` changed | ask the webapp for a new link |
 | Stream link answers `502` | Alldebrid refused the unlock | `wtf debrid logs` shows the Alldebrid error |
 
