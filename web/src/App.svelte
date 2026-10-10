@@ -5,7 +5,7 @@
   import { attachmentUrl, probe, save } from './lib/download.js';
   import { chooseMode } from './lib/save-mode.js';
   import { episodeLabel } from './lib/release.js';
-  import { flattenFiles, formatSize, isExtra, matches, matchesEpisode, sortMagnets } from './lib/util.js';
+  import { cutTail, flattenFiles, formatSize, isExtra, matches, matchesEpisode, sortMagnets } from './lib/util.js';
 
   /** main.js : 'link' | 'setup' | 'app' (lib/landing.js) */
   let { start: landingKind } = $props();
@@ -46,6 +46,7 @@
   let showAll = $state(load(KEY_SHOW_ALL, '') === '1'); // side files (.nfo, samples…) shown too
   let magnetQuery = $state('');
   let fileQuery = $state('');
+  let picking = $state(false); // « Sélectionner » : checkboxes and the bulk bar shown
   let selected = $state({}); // link → true : files checked for « Copier les liens » / « Voir les liens »
   let bulk = $state(null); // {text, expires} : the checked files' links, shown by « Voir les liens »
   let bulkCopied = $state(0); // number of links just copied : « Copié ✓ (n) »
@@ -195,6 +196,7 @@
       if (found.error) throw new Error(`${found.error.code} — ${found.error.message}`);
       if (magnet?.id !== m.id) {
         fileQuery = '';
+        picking = false;
         selected = {};
         bulk = null;
       }
@@ -272,6 +274,12 @@
   function checkShown() {
     for (const f of shownFiles) selected[f.link] = true;
     bulk = null;
+  }
+
+  /** « Terminer » closes the mode and forgets the selection. */
+  function togglePicking() {
+    if (picking) uncheckAll();
+    picking = !picking;
   }
 
   function uncheckAll() {
@@ -381,6 +389,31 @@
   const formatDate = (ms) => new Date(ms).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
 </script>
 
+<!-- Middle cut : the head ends in an ellipsis, the tail (extension) stays ; the full text is the title. -->
+{#snippet cut(text)}
+  {@const [head, tail] = cutTail(text)}
+  <span class="cut-start">{head}</span><span class="cut-end">{tail}</span>
+{/snippet}
+
+<!-- Row action icons (Feather). -->
+{#snippet icon(name)}
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {#if name === 'download'}
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+    {:else if name === 'copy'}
+      <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    {:else if name === 'link'}
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    {:else if name === 'renew'}
+      <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    {:else if name === 'cancel'}
+      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+    {:else}
+      <polyline points="20 6 9 17 4 12" />
+    {/if}
+  </svg>
+{/snippet}
+
 <!-- The expiry behind a small « i » : on hover, or toggled by a tap (no hover on a phone). -->
 {#snippet expiry(entry, verb)}
   <span class="info-wrap">
@@ -466,7 +499,10 @@
         <h2 class="magnet-name">{magnet.filename}</h2>
       </div>
       <p class="muted save-mode" data-mode={usualMode}>{HINTS[usualMode]}</p>
-      <input id="search" class="search" type="search" placeholder="Rechercher : nom, s2e5, e5, s2…" autocomplete="off" bind:value={fileQuery} />
+      <div class="search-row">
+        <input id="search" class="search" type="search" placeholder="Rechercher : nom, s2e5, e5, s2…" autocomplete="off" bind:value={fileQuery} />
+        <button id="pick-mode" class="small secondary" aria-pressed={picking} onclick={togglePicking}>{picking ? 'Terminer' : 'Sélectionner'}</button>
+      </div>
       {#if extraCount}
         <button id="show-all" class="small secondary" onclick={() => (showAll = !showAll)}>
           {showAll ? 'Masquer les fichiers annexes' : `Afficher tous les fichiers (${extraCount} masqué${extraCount > 1 ? 's' : ''})`}
@@ -475,7 +511,7 @@
       {#if shownFiles.length === 0}
         <p class="muted">{fileQuery.trim() ? 'Aucun résultat.' : 'Seulement des fichiers annexes.'}</p>
       {/if}
-      {#if files.length}
+      {#if picking}
         {@const count = selectedFiles.length}
         <div class="select-bar">
           <button id="check-all" class="small secondary" onclick={checkShown} disabled={!shownFiles.length}>Tout cocher</button>
@@ -496,26 +532,36 @@
           {@const t = transfers[f.link]}
           {@const l = links[f.link]}
           {@const mode = modeFor(f.size)}
-          <li class="file">
-            <input class="pick" type="checkbox" aria-label="Sélectionner {f.name}" checked={!!selected[f.link]} onchange={(e) => pick(f, e.currentTarget.checked)} />
+          {@const copyLabel = l?.copied ? 'Copié ✓' : 'Copier le lien'}
+          {@const linkLabel = l?.renewed ? 'Nouveau lien ✓' : l?.shown ? 'Regénérer le lien' : 'Voir le lien'}
+          <li class="file" class:picking>
+            {#if picking}
+              <input class="pick" type="checkbox" aria-label="Sélectionner {f.name}" checked={!!selected[f.link]} onchange={(e) => pick(f, e.currentTarget.checked)} />
+            {/if}
             <div class="body">
-              {#if f.label}
-                <div class="episode">{f.label.series ? `${f.label.series} · ` : ''}{f.label.code}{f.label.title ? ` — ${f.label.title}` : ''}</div>
-              {/if}
-              <div class="name" class:sub={!!f.label}>{f.path}</div>
-              <div class="meta">{formatSize(f.size)}</div>
-              <div class="actions">
-                {#if mode !== 'link'}
-                  <button class="small dl-p2p" data-mode={mode} onclick={() => downloadP2P(f, mode)} disabled={!!downloading}>Télécharger</button>
+              <div class="row1">
+                {#if f.label}
+                  {@const label = `${f.label.series ? `${f.label.series} · ` : ''}${f.label.code}${f.label.title ? ` — ${f.label.title}` : ''}`}
+                  <div class="episode" title={label}>{label}</div>
                 {:else}
-                  <button class="small dl-direct" onclick={() => downloadDirect(f)}>Télécharger</button>
+                  <div class="name cut" title={f.path}>{@render cut(f.path)}</div>
                 {/if}
-                <button class="small secondary copy-link" onclick={() => copyLink(f)}>{l?.copied ? 'Copié ✓' : 'Copier le lien'}</button>
-                <button class="small secondary show-link" onclick={() => showLink(f)}>{l?.renewed ? 'Nouveau lien ✓' : l?.shown ? 'Regénérer le lien' : 'Voir le lien'}</button>
-                {#if downloading === f.link}
-                  <button class="small danger" onclick={() => session.cancel()}>Annuler</button>
-                {/if}
+                <span class="meta size">{formatSize(f.size)}</span>
+                <div class="actions">
+                  {#if downloading === f.link}
+                    <button class="small danger icon" title="Annuler" aria-label="Annuler" onclick={() => session.cancel()}>{@render icon('cancel')}</button>
+                  {:else if mode !== 'link'}
+                    <button class="small icon dl-p2p" data-mode={mode} title="Télécharger" aria-label="Télécharger" onclick={() => downloadP2P(f, mode)} disabled={!!downloading}>{@render icon('download')}</button>
+                  {:else}
+                    <button class="small icon dl-direct" title="Télécharger" aria-label="Télécharger" onclick={() => downloadDirect(f)}>{@render icon('download')}</button>
+                  {/if}
+                  <button class="small secondary icon copy-link" title={copyLabel} aria-label={copyLabel} onclick={() => copyLink(f)}>{@render icon(l?.copied ? 'done' : 'copy')}</button>
+                  <button class="small secondary icon show-link" title={linkLabel} aria-label={linkLabel} onclick={() => showLink(f)}>{@render icon(l?.renewed ? 'done' : l?.shown ? 'renew' : 'link')}</button>
+                </div>
               </div>
+              {#if f.label}
+                <div class="name sub cut" title={f.path}>{@render cut(f.path)}</div>
+              {/if}
               {#if t}
                 <div class="progress">
                   <progress max="100" value={percent(t)}></progress>
@@ -579,17 +625,29 @@
   .status, .muted { color: #9aa0aa; font-size: 13px; }
   .list { list-style: none; margin: 0; padding: 0; }
   .list li { border-top: 1px solid #232833; padding: 10px 0; }
+  .list li.file { padding: 6px 0; }
   .list li:first-child { border-top: 0; }
   .row { width: 100%; text-align: left; background: none; padding: 0; font: inherit; color: inherit; display: block; }
   .row:disabled { opacity: .6; }
   .name { font-weight: 600; overflow-wrap: anywhere; }
   .name.sub { font-weight: 400; font-size: 12px; color: #9aa0aa; }
-  .episode { font-weight: 600; overflow-wrap: anywhere; }
+  .episode { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .search { margin: 4px 0 8px; font-family: system-ui, sans-serif; }
   #show-all { margin-bottom: 8px; }
   .meta { color: #9aa0aa; font-size: 12px; display: block; }
   .ready { color: #7ff0b0; }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .row1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .row1 > .episode, .row1 > .name { flex: 1; min-width: 0; }
+  .row1 .size { flex: none; }
+  .row1 .actions { flex: none; flex-wrap: nowrap; gap: 4px; margin: 0; }
+  .icon { padding: 5px 7px; line-height: 0; }
+  .cut { display: flex; min-width: 0; }
+  .cut-start { white-space: pre; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .cut-end { white-space: pre; flex: none; }
+  .search-row { display: flex; gap: 8px; align-items: center; margin: 4px 0 8px; }
+  .search-row .search { margin: 0; }
+  #pick-mode { flex: none; }
   .progress { margin-top: 6px; font-size: 12px; color: #9aa0aa; font-variant-numeric: tabular-nums; }
   progress { display: block; width: 100%; margin-bottom: 2px; }
   .notice { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); max-width: calc(100% - 32px); padding: 10px 14px; border-radius: 8px; background: #0e3a24; color: #7ff0b0; font-size: 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); overflow-wrap: anywhere; }
@@ -603,7 +661,7 @@
   .tip { display: none; position: absolute; right: 0; top: calc(100% + 4px); z-index: 1; white-space: nowrap; padding: 4px 8px; border-radius: 6px; background: #2a2f3a; color: #c8ccd4; font-size: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, .4); }
   .info-wrap:hover .tip, .tip.open { display: block; }
   .open-link { padding: 0 10px; line-height: 0; display: flex; align-items: center; flex: none; }
-  .list li.file { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: start; }
+  .list li.file.picking { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: start; }
   .body { min-width: 0; }
   .pick { width: auto; margin: 4px 0 0; }
   .select-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { episodeLabel } from '../lib/release.js';
-import { flattenFiles, formatSize, isExtra, matches, matchesEpisode, sortMagnets } from '../lib/util.js';
+import { cutTail, flattenFiles, formatSize, isExtra, matches, matchesEpisode, sortMagnets } from '../lib/util.js';
 
 test('flattenFiles walks nested folders and keeps size and link', () => {
   const tree = [
@@ -105,4 +105,14 @@ test('isExtra : the usual side files and samples, never subtitles', () => {
   for (const path of ['ep.mkv', 'ep.fr.srt', 'ep.ass', 'sampler.mkv', 'Samples of life.mkv', 'notes.txt.mkv']) {
     assert.equal(isExtra(path), false, path);
   }
+});
+
+test('cutTail : the tail keeps the extension, the parts join back to the text', () => {
+  const name = 'Show.S02E05.The.Pilot.1080p.WEB.x264.mkv';
+  const [head, tail] = cutTail(name);
+  assert.equal(tail, '.WEB.x264.mkv'.slice(-12));
+  assert.ok(tail.endsWith('.mkv'));
+  assert.equal(head + tail, name);
+  assert.deepEqual(cutTail('a.mkv'), ['', 'a.mkv']);
+  assert.deepEqual(cutTail(''), ['', '']);
 });

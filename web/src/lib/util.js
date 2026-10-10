@@ -91,3 +91,9 @@ const SAMPLE = /(^|[/ ._-])sample([/ ._-]|$)/i;
 export function isExtra(path) {
   return EXTRA_EXT.test(path) || (VIDEO_EXT_RE.test(path) && SAMPLE.test(path));
 }
+
+/** [head, tail] : the tail (last `n` characters, extension included) stays visible when the head is cut. */
+export function cutTail(text, n = 12) {
+  const at = Math.max(0, text.length - n);
+  return [text.slice(0, at), text.slice(at)];
+}
