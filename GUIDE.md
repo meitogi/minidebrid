@@ -73,6 +73,9 @@ In Cloudflare, two `A` records to the VPS IP, **DNS only (grey cloud)** :
 - `debrid.du` — stream links
 - `signal.du` — signaling relay
 
+And for the webapp, a `CNAME` **DNS only** : `minidebrid.du` → `meitogi.github.io`
+(GitHub Pages ; the rest of the setup is in [README.md](README.md#custom-domain)).
+
 An orange cloud would put Cloudflare in the byte path. Certificates use the
 DNS challenge (`acme-cloudflare-dns`), which works with grey-cloud records.
 
@@ -268,7 +271,7 @@ wtf debrid token revoke phone-kevin
 ```
 
 - `add <name>` creates a token and prints its **setup link**,
-  `https://meitogi.github.io/minidebrid/#t=<token>` (`&r=<relay>` is added
+  `https://minidebrid.du.ranchchoco.boo/#t=<token>` (`&r=<relay>` is added
   when `RELAY_URL` is not the webapp's default ; `WEBAPP_URL` in `.env`
   changes the base). Opened on a device, it saves the token, removes it from
   the address bar and connects. Names : letters, digits, `.`, `_`, `-`.

@@ -15,7 +15,7 @@ const env = process.env;
 try { process.loadEnvFile(env.ENV_FILE || join(ROOT, '.env')); } catch { /* no .env : container env or none */ }
 
 const FILE = env.TOKENS_FILE || join(ROOT, 'data', 'tokens.json');
-const WEBAPP_URL = (env.WEBAPP_URL || 'https://meitogi.github.io/minidebrid').replace(/\/+$/, '') + '/';
+const WEBAPP_URL = (env.WEBAPP_URL || 'https://minidebrid.du.ranchchoco.boo').replace(/\/+$/, '') + '/';
 const DEFAULT_RELAY = 'wss://signal.du.ranchchoco.boo'; // the webapp's default (web/src/App.svelte)
 const relay = env.RELAY_URL && env.RELAY_URL !== DEFAULT_RELAY ? `&r=${encodeURIComponent(env.RELAY_URL)}` : '';
 const appToken = env.APP_TOKEN;

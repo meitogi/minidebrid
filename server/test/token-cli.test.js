@@ -31,7 +31,7 @@ test('add : the store holds the entry, stdout the setup link with that exact tok
   const entry = store().phone;
   assert.match(entry.token, /^[0-9a-f]{64}$/);
   assert.ok(Date.now() - Date.parse(entry.created) < 60_000);
-  assert.ok(r.out.includes(`https://meitogi.github.io/minidebrid/#t=${entry.token}\n`), r.out);
+  assert.ok(r.out.includes(`https://minidebrid.du.ranchchoco.boo/#t=${entry.token}\n`), r.out);
   assert.equal(statSync(join(dir, 'data', 'tokens.json')).mode & 0o777, 0o600);
 });
 
