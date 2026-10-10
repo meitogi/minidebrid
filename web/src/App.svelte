@@ -1,10 +1,11 @@
 <script>
   import { onMount } from 'svelte';
-  import { DEFAULT_RELAY, KEY_RELAY, KEY_TOKEN, parseHash } from './lib/landing.js';
+  import { DEFAULT_RELAY, KEY_RELAY, KEY_TOKEN, magnetFromHash, parseHash } from './lib/landing.js';
   import { connect } from './lib/peer.js';
   import { attachmentUrl, probe, save } from './lib/download.js';
   import { chooseMode } from './lib/save-mode.js';
-  import { flattenFiles, formatSize, sortMagnets } from './lib/util.js';
+  import { episodeLabel } from './lib/release.js';
+  import { flattenFiles, formatSize, isExtra, matches, matchesEpisode, sortMagnets } from './lib/util.js';
 
   /** main.js : 'link' | 'setup' | 'app' (lib/landing.js) */
   let { start: landingKind } = $props();
@@ -41,6 +42,15 @@
   let notice = $state(null); // {text, kind} : end-of-transfer banner, every mode
   let caps = $state(null); // what this browser can do for a P2P save (lib/download.js probe)
   let showToken = $state(false);
+  const KEY_SHOW_ALL = 'debrid-remote:show-all';
+  let showAll = $state(load(KEY_SHOW_ALL, '') === '1'); // side files (.nfo, samples…) shown too
+  let magnetQuery = $state('');
+  let fileQuery = $state('');
+  let pushed = false; // the open magnet's #m= entry was pushed by this page : « ← Magnets » goes back to it
+
+  const shownMagnets = $derived(magnetQuery.trim() ? magnets.filter((m) => matches(m.filename, magnetQuery)) : magnets);
+  const extraCount = $derived(files.filter((f) => f.extra).length);
+  const shownFiles = $derived(files.filter((f) => (showAll || !f.extra) && matchesEpisode(f.search, f.label, fileQuery)));
   let noticeTimer = null;
 
   function notify(text, kind = 'ok') {
@@ -66,6 +76,7 @@
 
   $effect(() => store(KEY_TOKEN, token));
   $effect(() => store(KEY_RELAY, relay));
+  $effect(() => store(KEY_SHOW_ALL, showAll ? '1' : ''));
 
   // Connects once at load, never again by itself : after a failure or Déconnecter, the form stays.
   onMount(() => {
@@ -79,7 +90,45 @@
       }
     }
     if (landingKind !== 'setup' && token.trim()) start();
+    addEventListener('popstate', onPopState);
+    return () => removeEventListener('popstate', onPopState);
   });
+
+  // Back / forward between the list (no #m=) and an open magnet (#m=<id>).
+  function onPopState() {
+    if (!session) return;
+    const id = magnetFromHash(location.hash);
+    const m = id === null ? null : magnets.find((x) => String(x.id) === id);
+    if (m?.statusCode === 4) {
+      pushed = true;
+      openMagnet(m, false);
+    } else {
+      pushed = false;
+      view = 'magnets';
+    }
+  }
+
+  const bareUrl = () => location.pathname + location.search;
+
+  /** After a (re)connection : the magnet named by #m= in the URL, if it is listed and ready. */
+  function openFromHash() {
+    const id = magnetFromHash(location.hash);
+    if (id === null) return;
+    const m = magnets.find((x) => String(x.id) === id);
+    if (m?.statusCode === 4) return openMagnet(m, false);
+    history.replaceState(history.state, '', bareUrl());
+    notify(`Magnet ${id} introuvable ou pas encore prêt`, 'error');
+  }
+
+  function backToMagnets() {
+    if (pushed) {
+      pushed = false;
+      history.back(); // popstate shows the list
+      return;
+    }
+    history.replaceState(history.state, '', bareUrl());
+    view = 'magnets';
+  }
 
   function describe(e) {
     const known = ERRORS[e.code];
@@ -102,6 +151,7 @@
       return;
     }
     await refreshMagnets();
+    openFromHash();
   }
 
   function disconnect(message = '') {
@@ -129,7 +179,8 @@
     }
   }
 
-  async function openMagnet(m) {
+  /** `push` : record #m=<id> as a new history entry (false : from the URL or the back button). */
+  async function openMagnet(m, push = true) {
     loading = true;
     error = '';
     try {
@@ -138,9 +189,17 @@
       const found = list.find((x) => String(x.id) === String(m.id)) ?? list[0];
       if (!found) throw new Error(`magnet ${m.id} introuvable`);
       if (found.error) throw new Error(`${found.error.code} — ${found.error.message}`);
+      if (magnet?.id !== m.id) fileQuery = '';
       magnet = m;
-      files = flattenFiles(found.files);
+      files = flattenFiles(found.files).map((f) => {
+        const label = episodeLabel(f, m.filename);
+        return { ...f, label, extra: isExtra(f.path), search: `${f.path} ${label?.series ?? ''} ${label?.title ?? ''}` };
+      });
       view = 'files';
+      if (push) {
+        history.pushState(null, '', `${bareUrl()}#m=${m.id}`);
+        pushed = true;
+      }
     } catch (e) {
       error = describe(e);
     } finally {
@@ -278,14 +337,17 @@
   {:else if view === 'magnets'}
     <section>
       <div class="bar">
-        <h2>Magnets ({magnets.length})</h2>
+        <h2>Magnets ({shownMagnets.length === magnets.length ? magnets.length : `${shownMagnets.length} / ${magnets.length}`})</h2>
         <button class="small" onclick={refreshMagnets} disabled={loading}>Actualiser</button>
       </div>
+      <input id="search" class="search" type="search" placeholder="Rechercher un magnet…" autocomplete="off" bind:value={magnetQuery} />
       {#if magnets.length === 0}
         <p class="muted">Aucun magnet sur le compte.</p>
+      {:else if shownMagnets.length === 0}
+        <p class="muted">Aucun résultat.</p>
       {/if}
       <ul class="list">
-        {#each magnets as m (m.id)}
+        {#each shownMagnets as m (m.id)}
           <li class="magnet">
             <button class="row" onclick={() => openMagnet(m)} disabled={loading || m.statusCode !== 4}>
               <span class="name">{m.filename}</span>
@@ -301,17 +363,29 @@
   {:else if view === 'files'}
     <section>
       <div class="bar">
-        <button class="small secondary" onclick={() => { view = 'magnets'; }} disabled={!!downloading}>← Magnets</button>
+        <button class="small secondary" onclick={backToMagnets} disabled={!!downloading}>← Magnets</button>
         <h2 class="magnet-name">{magnet.filename}</h2>
       </div>
       <p class="muted save-mode" data-mode={usualMode}>{HINTS[usualMode]}</p>
+      <input id="search" class="search" type="search" placeholder="Rechercher : nom, s2e5, e5, s2…" autocomplete="off" bind:value={fileQuery} />
+      {#if extraCount}
+        <button id="show-all" class="small secondary" onclick={() => (showAll = !showAll)}>
+          {showAll ? 'Masquer les fichiers annexes' : `Afficher tous les fichiers (${extraCount} masqué${extraCount > 1 ? 's' : ''})`}
+        </button>
+      {/if}
+      {#if shownFiles.length === 0}
+        <p class="muted">{fileQuery.trim() ? 'Aucun résultat.' : 'Seulement des fichiers annexes.'}</p>
+      {/if}
       <ul class="list">
-        {#each files as f (f.link)}
+        {#each shownFiles as f (f.link)}
           {@const t = transfers[f.link]}
           {@const l = links[f.link]}
           {@const mode = modeFor(f.size)}
           <li class="file">
-            <div class="name">{f.path}</div>
+            {#if f.label}
+              <div class="episode">{f.label.series ? `${f.label.series} · ` : ''}{f.label.code}{f.label.title ? ` — ${f.label.title}` : ''}</div>
+            {/if}
+            <div class="name" class:sub={!!f.label}>{f.path}</div>
             <div class="meta">{formatSize(f.size)}</div>
             <div class="actions">
               {#if mode !== 'link'}
@@ -380,6 +454,10 @@
   .row { width: 100%; text-align: left; background: none; padding: 0; font: inherit; color: inherit; display: block; }
   .row:disabled { opacity: .6; }
   .name { font-weight: 600; overflow-wrap: anywhere; }
+  .name.sub { font-weight: 400; font-size: 12px; color: #9aa0aa; }
+  .episode { font-weight: 600; overflow-wrap: anywhere; }
+  .search { margin: 4px 0 8px; font-family: system-ui, sans-serif; }
+  #show-all { margin-bottom: 8px; }
   .meta { color: #9aa0aa; font-size: 12px; display: block; }
   .ready { color: #7ff0b0; }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }

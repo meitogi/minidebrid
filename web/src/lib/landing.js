@@ -39,6 +39,12 @@ export function parseHash(hash) {
   return Object.hasOwn(params, 'setup') ? { setup: true } : null;
 }
 
+/** Magnet id of '#m=<digits>' (the open magnet, kept in the URL), else null. */
+export function magnetFromHash(hash) {
+  const m = /^#(?:.*&)?m=(\d+)(?:&|$)/.exec(hash ?? '');
+  return m ? m[1] : null;
+}
+
 /** 'link' | 'setup' | 'app' | 'redirect'. */
 export function landing({ hash, savedToken }) {
   const parsed = parseHash(hash);

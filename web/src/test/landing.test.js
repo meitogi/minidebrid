@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { landing, parseHash, validRelay } from '../lib/landing.js';
+import { landing, magnetFromHash, parseHash, validRelay } from '../lib/landing.js';
 
 const T = '0123456789abcdef'.repeat(4);
 
@@ -50,4 +50,15 @@ test('landing : link, setup, app or redirect', () => {
   assert.equal(landing({ hash: '', savedToken: '' }), 'redirect');
   assert.equal(landing({ hash: '', savedToken: '   ' }), 'redirect');
   assert.equal(landing({ hash: '', savedToken: null }), 'redirect');
+});
+
+test('magnetFromHash : the magnet id of #m=<id>, else null ; landing treats it as app or redirect', () => {
+  assert.equal(magnetFromHash('#m=123'), '123');
+  assert.equal(magnetFromHash('#m=123&x=1'), '123');
+  assert.equal(magnetFromHash('#m=abc'), null);
+  assert.equal(magnetFromHash(`#t=${T}`), null);
+  assert.equal(magnetFromHash(''), null);
+  assert.equal(magnetFromHash(undefined), null);
+  assert.equal(landing({ hash: '#m=123', savedToken: T }), 'app');
+  assert.equal(landing({ hash: '#m=123', savedToken: '' }), 'redirect');
 });
