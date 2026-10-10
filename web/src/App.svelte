@@ -384,8 +384,8 @@
 <!-- The expiry behind a small « i » : on hover, or toggled by a tap (no hover on a phone). -->
 {#snippet expiry(entry, verb)}
   <span class="info-wrap">
-    <button type="button" class="secondary info" aria-label="Validité du lien" aria-expanded={!!entry.info} onclick={() => (entry.info = !entry.info)}>
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <button type="button" class="info" aria-label="Validité du lien" aria-expanded={!!entry.info} onclick={() => (entry.info = !entry.info)}>
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="10" />
         <line x1="12" y1="16" x2="12" y2="12" />
         <line x1="12" y1="8" x2="12.01" y2="8" />
@@ -526,6 +526,8 @@
               {#if l?.shown}
                 <div class="link">
                   <div class="link-row">
+                    <input class="url" readonly value={l.url} onfocus={selectText} onclick={selectText} onmouseup={(e) => e.preventDefault()} />
+                    {@render expiry(l, 'expire')}
                     <a class="button secondary open-link" href={l.url} target="_blank" rel="noreferrer" title="Ouvrir le lien — clic droit : copier l’adresse du lien" aria-label="Ouvrir le lien">
                       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <circle cx="18" cy="5" r="3" />
@@ -535,8 +537,6 @@
                         <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
                       </svg>
                     </a>
-                    <input class="url" readonly value={l.url} onfocus={selectText} onclick={selectText} onmouseup={(e) => e.preventDefault()} />
-                    {@render expiry(l, 'expire')}
                   </div>
                 </div>
               {/if}
@@ -596,12 +596,13 @@
   .notice.muted { background: #2a2f3a; color: #e6e6e6; }
   .notice.error { background: #3a0e0e; color: #f08f8f; }
   .link { margin-top: 6px; }
-  .link-row { display: flex; gap: 6px; align-items: flex-start; }
-  .info-wrap { position: relative; display: flex; align-self: stretch; }
-  .info { padding: 0 8px; line-height: 0; }
+  .link-row { display: flex; gap: 6px; }
+  .info-wrap { position: relative; display: flex; }
+  .info { padding: 0 2px; line-height: 0; background: none; color: #5c6370; }
+  .info:hover, .info[aria-expanded='true'] { color: #9aa0aa; }
   .tip { display: none; position: absolute; right: 0; top: calc(100% + 4px); z-index: 1; white-space: nowrap; padding: 4px 8px; border-radius: 6px; background: #2a2f3a; color: #c8ccd4; font-size: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, .4); }
   .info-wrap:hover .tip, .tip.open { display: block; }
-  .open-link { padding: 0 10px; line-height: 0; display: flex; align-items: center; }
+  .open-link { padding: 0 10px; line-height: 0; display: flex; align-items: center; flex: none; }
   .list li.file { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: start; }
   .body { min-width: 0; }
   .pick { width: auto; margin: 4px 0 0; }
