@@ -86,7 +86,7 @@ async function icePath(pc) {
 /**
  * Connects through the relay to the first `debrid-remote` server it lists, then authenticates
  * with `token`. Resolves once the token is accepted
- * with a session : {peerId, path, call(m, p), ad(path, fields), streamUrl(link, name),
+ * with a session : {peerId, path, call(m, p), ad(path, fields), streamUrl(link, name, fresh),
  * download(link, sink), cancel(), close()}. Rejects with an Error carrying `code`.
  * onStatus(text) reports progress ; onClose(error) fires once if an open session drops.
  */
@@ -196,7 +196,8 @@ export async function connect({ relayUrl, token, stun = STUN, onStatus = () => {
     path: null,
     call: (m, p) => call(m, p),
     ad: (path, fields = {}) => call('ad', { path, fields }),
-    streamUrl: (link, name) => call('streamUrl', { link, name }),
+    /** fresh : a new Alldebrid unlock on the server too (« Regénérer le lien »). */
+    streamUrl: (link, name, fresh = false) => call('streamUrl', { link, name, fresh }),
     /** sink : {start(size), chunk(ArrayBuffer)} ; resolves 'end' | 'cancelled'. */
     download: (link, sink) => {
       if (active) return Promise.reject(new Error('un téléchargement est déjà en cours'));

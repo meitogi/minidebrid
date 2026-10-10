@@ -5,24 +5,13 @@ import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
 import { verifyToken } from './stream-token.js';
 
-const UNLOCK_TTL_MS = 6 * 3600 * 1000;
 const FORWARDED = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified'];
 const ROUTE = /^\/s\/([^/]+)\/(.+)$/;
 // RFC 8187 ext-value : encodeURIComponent leaves ' ( ) ! * raw, which would end or garble filename*.
 const extValue = (s) => encodeURIComponent(s).replace(/['()!*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 
-/** `unlock(link)` resolves a locked link into a direct URL ; `secret` signs the tokens. */
-export function createHttpServer({ secret, unlock }) {
-  const cache = {}; // locked link → {url, at}
-
-  async function unlocked(link) {
-    const hit = cache[link];
-    if (hit && Date.now() - hit.at < UNLOCK_TTL_MS) return hit.url;
-    const url = await unlock(link);
-    cache[link] = { url, at: Date.now() };
-    return url;
-  }
-
+/** `unlocked` : the unlock cache (unlock-cache.js) ; `secret` signs the tokens. */
+export function createHttpServer({ secret, unlocked }) {
   async function handle(req, res) {
     const method = req.method;
     const url = new URL(req.url, 'http://x');
@@ -42,14 +31,14 @@ export function createHttpServer({ secret, unlock }) {
       const headers = { 'accept-encoding': 'identity' }; // fetch would gunzip and desync content-length
       const range = req.headers.range;
       if (range) headers.range = range;
-      upstream = await fetch(await unlocked(link), { method, headers, signal: abort.signal });
+      upstream = await fetch(await unlocked.get(link), { method, headers, signal: abort.signal });
     } catch (e) {
       if (abort.signal.aborted) return;
       console.log(`http: upstream failed for ${ascii}: ${e.message}`);
       return res.writeHead(502).end();
     }
     const status = upstream.status;
-    if (status >= 400) delete cache[link];
+    if (status >= 400) unlocked.forget(link);
 
     const out = {};
     for (const h of FORWARDED) {

@@ -16,6 +16,7 @@ server, the relay and the stream router. Publishing the webapp is in
 | frpc proxy | home machine, frpc directory | outside both repos |
 | Access tokens (`wtf debrid token …`) | home machine (Linux : `docker exec`, § 7) | writes the token store ; prints live setup links |
 | HTTPS checks (`curl`) | host | the devcontainer firewall blocks the VPS |
+| Update (§ 8) | push : where you commit ; server : home machine | Pages deploys on push ; the server runs at home |
 
 Alldebrid bans accounts used from several IPs : anything holding
 `ALLDEBRID_APIKEY` runs from the home connection, never from a laptop
@@ -304,6 +305,52 @@ docker exec debrid-remote node bin/token.js revoke phone-kevin
 by the first user of the machine ; otherwise `sudo chown 1000 server/data`
 (the CLI says `cannot write … (EACCES)`).
 
+## 8. Update — deploying a new version
+
+Two halves, each only when its directory changed : the webapp (`web/`) is
+redeployed by GitHub on push, the server (`server/`) by hand on the home
+machine. A version that changes both (e.g. « Regénérer le lien ») needs both ;
+the order does not matter, an old server ignores what it does not know.
+
+**Webapp** — from the clone you commit in :
+
+```sh
+git push origin main
+gh run watch
+```
+
+The **pages** run tests, builds and publishes. Then reload the webapp on each
+device ; GitHub's cache can serve the previous version up to 10 minutes, a
+forced reload (Cmd-Shift-R) skips it.
+
+**Server, macOS** — on the home machine, in the repo (`~/Developer/minidebrid`) :
+
+```sh
+git pull
+git diff --stat HEAD@{1} -- server
+npm --prefix server ci
+wtf debrid agent stop
+wtf debrid agent start
+wtf debrid agent logs -t 5
+```
+
+The second line lists what changed under `server/` : empty → stop there, no
+restart needed. `npm ci` is only needed when `server/package-lock.json` is in
+that list, harmless otherwise. Expected in the log : `tokens: …`,
+`http: listening on :8098`, `relay: connected, peerId=srv-…`. A device
+connected during the restart sees « Connexion au serveur perdue » :
+**Se connecter** again.
+
+**Server, Linux container** :
+
+```sh
+git pull
+wtf debrid up
+wtf debrid logs -t 5
+```
+
+`up` rebuilds the image and recreates the container.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -324,6 +371,7 @@ by the first user of the machine ; otherwise `sudo chown 1000 server/data`
 | Webapp : « Aucun serveur sur le relay » | the home server is stopped or not connected to the relay (the token is not involved) | `wtf debrid agent status` / `logs` ; look for `relay: connected` |
 | A new token is refused, the log says `tokens: … ignored (…)` | `tokens.json` was edited by hand and is malformed | fix it as the reason says ; the previous set stays in force meanwhile |
 | Stream link answers `502` | Alldebrid refused the unlock | `wtf debrid logs` shows the Alldebrid error |
+| A stream link stalls or fails although the server runs | the Alldebrid URL behind it died (the server keeps an unlock 6 h) | webapp : **Voir le lien** then **Regénérer le lien** — a new unlock now, its error shown at once. A server older than this button only signs a new link : update it (§ 8) |
 
 ## Commands
 

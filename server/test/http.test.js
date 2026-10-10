@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { createHttpServer } from '../src/http.js';
 import { signToken } from '../src/stream-token.js';
+import { createUnlockCache } from '../src/unlock-cache.js';
 
 const SECRET = 'test-secret';
 const LINK = 'https://alldebrid.com/f/locked';
@@ -40,7 +41,7 @@ before(async () => {
     assert.equal(link, LINK);
     return upstreamUrl;
   };
-  proxy = createHttpServer({ secret: SECRET, unlock }).listen(0);
+  proxy = createHttpServer({ secret: SECRET, unlocked: createUnlockCache(unlock) }).listen(0);
   await new Promise((r) => proxy.once('listening', r));
   base = `http://127.0.0.1:${proxy.address().port}`;
 });

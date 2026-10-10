@@ -6,6 +6,7 @@ import { createAccess } from './access.js';
 import { ad, openDownload, unlock } from './alldebrid.js';
 import { missingEnv, streamSecret } from './config.js';
 import { createHttpServer } from './http.js';
+import { createUnlockCache } from './unlock-cache.js';
 import { parsePortRange, startPeer } from './peer.js';
 import { serveChannel } from './rpc.js';
 import { streamUrlBuilder } from './stream-token.js';
@@ -23,16 +24,17 @@ if (process.exitCode) process.exit();
 const secret = streamSecret(env);
 const httpPort = Number(env.HTTP_PORT) || 8098;
 const streamUrl = streamUrlBuilder(env.PUBLIC_URL, secret);
+const unlocked = createUnlockCache(unlock);
 const access = createAccess({ file: env.TOKENS_FILE || join(ROOT, 'data', 'tokens.json'), appToken: env.APP_TOKEN });
 const names = [];
 for (const name in access.tokens()) names.push(name);
 console.log(names.length ? `tokens: ${names.join(', ')}` : 'tokens: none yet — wtf debrid token add <name>');
 
-createHttpServer({ secret, unlock }).listen(httpPort, () => console.log(`http: listening on :${httpPort}`));
+createHttpServer({ secret, unlocked }).listen(httpPort, () => console.log(`http: listening on :${httpPort}`));
 
 startPeer({
   relayUrl: env.RELAY_URL,
   stun: env.STUN ?? 'stun:stun.l.google.com:19302',
   icePortRange: parsePortRange(env.ICE_PORTS),
-  onChannel: (channel) => serveChannel(channel, access, { ad, streamUrl, openDownload }),
+  onChannel: (channel) => serveChannel(channel, access, { ad, streamUrl, refreshUnlock: unlocked.refresh, openDownload }),
 });

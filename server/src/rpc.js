@@ -12,10 +12,11 @@ const FRAG_CHARS = 8192; // ≤ 6 bytes per char once JSON-escaped : a frame sta
 
 /**
  * deps : authenticate(token) → token name or null (access.js), ad(path, fields), streamUrl(link, name) → {url, expires},
+ * refreshUnlock(link) → a new Alldebrid unlock replacing the cached one (unlock-cache.js),
  * openDownload(link, signal) → {size, body: ReadableStream}.
  * The caller wires channel.onMessage to `onMessage` and channel close to `dispose`.
  */
-export function createRpc(channel, { authenticate, ad, streamUrl, openDownload, authTimeoutMs = 5000 }) {
+export function createRpc(channel, { authenticate, ad, streamUrl, refreshUnlock, openDownload, authTimeoutMs = 5000 }) {
   let authed = false;
   let download = null; // AbortController of the running download
   const timer = setTimeout(() => { if (!authed) channel.close(); }, authTimeoutMs);
@@ -36,7 +37,9 @@ export function createRpc(channel, { authenticate, ad, streamUrl, openDownload, 
       if (typeof path !== 'string' || !AD_PATH.test(path)) throw new Error('path must start with /v4/ or /v4.1/');
       return ad(path, fields ?? {});
     },
-    streamUrl({ link, name }) {
+    /** `fresh` : « Regénérer le lien » — unlock again now, so an Alldebrid error shows on the click, not in VLC. */
+    async streamUrl({ link, name, fresh }) {
+      if (fresh) await refreshUnlock(link);
       return streamUrl(link, name);
     },
   };

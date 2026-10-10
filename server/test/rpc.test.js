@@ -149,6 +149,27 @@ test('streamUrl → {id, r: {url, expires}}', async () => {
   rpc.dispose();
 });
 
+test('streamUrl with fresh → a new unlock first ; without → none', async () => {
+  const refreshed = [];
+  const { channel, rpc } = setup({ refreshUnlock: async (link) => { refreshed.push(link); } });
+  rpc.onMessage(JSON.stringify({ t: 'auth', token: TOKEN }));
+  rpc.onMessage(JSON.stringify({ id: 3, m: 'streamUrl', p: { link: 'L', name: 'a.mkv' } }));
+  rpc.onMessage(JSON.stringify({ id: 4, m: 'streamUrl', p: { link: 'L', name: 'a.mkv', fresh: true } }));
+  await tick();
+  assert.deepEqual(refreshed, ['L']);
+  assert.deepEqual(json(channel)[2], { id: 4, r: { url: 'https://h/s/t/a.mkv', expires: 42 } });
+  rpc.dispose();
+});
+
+test('streamUrl with fresh : an unlock error is the reply', async () => {
+  const { channel, rpc } = setup({ refreshUnlock: async () => { throw new Error('AllDebrid /v4/link/unlock: LINK_DOWN — down'); } });
+  rpc.onMessage(JSON.stringify({ t: 'auth', token: TOKEN }));
+  rpc.onMessage(JSON.stringify({ id: 5, m: 'streamUrl', p: { link: 'L', name: 'a.mkv', fresh: true } }));
+  await tick();
+  assert.deepEqual(json(channel)[1], { id: 5, e: 'AllDebrid /v4/link/unlock: LINK_DOWN — down' });
+  rpc.dispose();
+});
+
 test('download → {size}, chunks equal to the source byte for byte, then end', async () => {
   const source = randomBytes(3 * 1024 * 1024 + 123);
   let gotLink;

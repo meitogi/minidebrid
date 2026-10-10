@@ -46,11 +46,15 @@
   let showAll = $state(load(KEY_SHOW_ALL, '') === '1'); // side files (.nfo, samples…) shown too
   let magnetQuery = $state('');
   let fileQuery = $state('');
+  let selected = $state({}); // link → true : files checked for « Copier les liens » / « Voir les liens »
+  let bulk = $state(null); // {text, expires} : the checked files' links, shown by « Voir les liens »
+  let bulkCopied = $state(0); // number of links just copied : « Copié ✓ (n) »
   let pushed = false; // the open magnet's #m= entry was pushed by this page : « ← Magnets » goes back to it
 
   const shownMagnets = $derived(magnetQuery.trim() ? magnets.filter((m) => matches(m.filename, magnetQuery)) : magnets);
   const extraCount = $derived(files.filter((f) => f.extra).length);
   const shownFiles = $derived(files.filter((f) => (showAll || !f.extra) && matchesEpisode(f.search, f.label, fileQuery)));
+  const selectedFiles = $derived(files.filter((f) => selected[f.link]));
   let noticeTimer = null;
 
   function notify(text, kind = 'ok') {
@@ -189,7 +193,11 @@
       const found = list.find((x) => String(x.id) === String(m.id)) ?? list[0];
       if (!found) throw new Error(`magnet ${m.id} introuvable`);
       if (found.error) throw new Error(`${found.error.code} — ${found.error.message}`);
-      if (magnet?.id !== m.id) fileQuery = '';
+      if (magnet?.id !== m.id) {
+        fileQuery = '';
+        selected = {};
+        bulk = null;
+      }
       magnet = m;
       files = flattenFiles(found.files).map((f) => {
         const label = episodeLabel(f, m.filename);
@@ -207,12 +215,13 @@
     }
   }
 
-  async function streamLink(file) {
+  /** `fresh` : skip the cache, and the server unlocks the file again on Alldebrid. */
+  async function streamLink(file, fresh = false) {
     const link = file.link;
     const cached = links[link];
-    if (cached && cached.expires - Date.now() > 60_000) return cached;
-    const r = await session.streamUrl(link, file.name);
-    links[link] = { url: r.url, expires: r.expires, copied: false, shown: false };
+    if (!fresh && cached && cached.expires - Date.now() > 60_000) return cached;
+    const r = await session.streamUrl(link, file.name, fresh);
+    links[link] = { url: r.url, expires: r.expires, copied: false, shown: cached?.shown ?? false, renewed: false };
     return links[link];
   }
 
@@ -232,17 +241,93 @@
     }
   }
 
-  /** No streamed write to disk here : the stream link with ?dl=1, started right away. */
-  async function toggleLink(file) {
+  /** « Voir le lien » shows it ; once shown, « Regénérer le lien » : a new Alldebrid unlock and a new signed link. */
+  async function showLink(file) {
     error = '';
     try {
-      const entry = await streamLink(file);
-      entry.shown = !entry.shown;
+      const shown = !!links[file.link]?.shown;
+      const entry = await streamLink(file, shown);
+      entry.shown = true;
+      if (!shown) return;
+      entry.renewed = true;
+      setTimeout(() => (entry.renewed = false), 2000);
     } catch (e) {
       error = describe(e);
     }
   }
 
+  /** Click or focus on a link field : the whole URL selected, iOS included (select() does nothing there). */
+  function selectText(e) {
+    const el = e.currentTarget;
+    el.setSelectionRange(0, el.value.length);
+  }
+
+  function pick(file, on) {
+    if (on) selected[file.link] = true;
+    else delete selected[file.link];
+    bulk = null;
+  }
+
+  /** « Tout cocher » : the files the search and the side-file toggle show. */
+  function checkShown() {
+    for (const f of shownFiles) selected[f.link] = true;
+    bulk = null;
+  }
+
+  function uncheckAll() {
+    selected = {};
+    bulk = null;
+  }
+
+  /** The checked files' links, one per line in the files' order ; signing only, no Alldebrid call. */
+  async function selectedLinks() {
+    const entries = await Promise.all(selectedFiles.map((f) => streamLink(f)));
+    let expires = Infinity;
+    for (const e of entries) if (e.expires < expires) expires = e.expires;
+    return { text: entries.map((e) => e.url).join('\n'), expires };
+  }
+
+  /**
+   * The clipboard write starts inside the click, with the links still a promise : Safari drops the
+   * user gesture across an await, ClipboardItem keeps it. Then writeText, then the list on screen.
+   */
+  function copyLinks() {
+    error = '';
+    const count = selectedFiles.length;
+    const pending = selectedLinks();
+    let copy;
+    try {
+      copy = navigator.clipboard.write([new ClipboardItem({ 'text/plain': pending.then((b) => new Blob([b.text], { type: 'text/plain' })) })]);
+    } catch (e) {
+      copy = Promise.reject(e);
+    }
+    copy
+      .catch(() => pending.then((b) => navigator.clipboard.writeText(b.text)))
+      .then(
+        () => {
+          bulkCopied = count;
+          setTimeout(() => (bulkCopied = 0), 2000);
+        },
+        async () => {
+          try {
+            bulk = await pending;
+          } catch (e) {
+            error = describe(e);
+          }
+        },
+      );
+  }
+
+  async function showLinks() {
+    error = '';
+    try {
+      bulk = await selectedLinks();
+    } catch (e) {
+      error = describe(e);
+    }
+  }
+
+  /** No streamed write to disk here : the stream link with ?dl=1, started right away. */
   async function downloadDirect(file) {
     error = '';
     try {
@@ -295,6 +380,20 @@
   const percent = (t) => (t.size ? Math.min(100, Math.floor((t.received / t.size) * 100)) : 0);
   const formatDate = (ms) => new Date(ms).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
 </script>
+
+<!-- The expiry behind a small « i » : on hover, or toggled by a tap (no hover on a phone). -->
+{#snippet expiry(entry, verb)}
+  <span class="info-wrap">
+    <button type="button" class="secondary info" aria-label="Validité du lien" aria-expanded={!!entry.info} onclick={() => (entry.info = !entry.info)}>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="16" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12.01" y2="8" />
+      </svg>
+    </button>
+    <span class="tip" class:open={entry.info} role="tooltip">{verb} le {formatDate(entry.expires)}</span>
+  </span>
+{/snippet}
 
 <main data-save-mode={caps ? usualMode : ''}>
   <header>
@@ -376,42 +475,72 @@
       {#if shownFiles.length === 0}
         <p class="muted">{fileQuery.trim() ? 'Aucun résultat.' : 'Seulement des fichiers annexes.'}</p>
       {/if}
+      {#if files.length}
+        {@const count = selectedFiles.length}
+        <div class="select-bar">
+          <button id="check-all" class="small secondary" onclick={checkShown} disabled={!shownFiles.length}>Tout cocher</button>
+          <button id="uncheck-all" class="small secondary" onclick={uncheckAll} disabled={!count}>Tout décocher</button>
+          <span class="muted">{count} sélectionné{count > 1 ? 's' : ''}</span>
+          <button id="copy-links" class="small" onclick={copyLinks} disabled={!count}>{bulkCopied ? `Copié ✓ (${bulkCopied})` : 'Copier les liens'}</button>
+          <button id="show-links" class="small secondary" onclick={showLinks} disabled={!count}>Voir les liens</button>
+        </div>
+      {/if}
+      {#if bulk}
+        <div class="link link-row">
+          <textarea class="urls" readonly rows={Math.min(8, selectedFiles.length)} value={bulk.text} onfocus={selectText} onclick={selectText} onmouseup={(e) => e.preventDefault()}></textarea>
+          {@render expiry(bulk, 'expirent')}
+        </div>
+      {/if}
       <ul class="list">
         {#each shownFiles as f (f.link)}
           {@const t = transfers[f.link]}
           {@const l = links[f.link]}
           {@const mode = modeFor(f.size)}
           <li class="file">
-            {#if f.label}
-              <div class="episode">{f.label.series ? `${f.label.series} · ` : ''}{f.label.code}{f.label.title ? ` — ${f.label.title}` : ''}</div>
-            {/if}
-            <div class="name" class:sub={!!f.label}>{f.path}</div>
-            <div class="meta">{formatSize(f.size)}</div>
-            <div class="actions">
-              {#if mode !== 'link'}
-                <button class="small dl-p2p" data-mode={mode} onclick={() => downloadP2P(f, mode)} disabled={!!downloading}>Télécharger</button>
-              {:else}
-                <button class="small dl-direct" onclick={() => downloadDirect(f)}>Télécharger</button>
+            <input class="pick" type="checkbox" aria-label="Sélectionner {f.name}" checked={!!selected[f.link]} onchange={(e) => pick(f, e.currentTarget.checked)} />
+            <div class="body">
+              {#if f.label}
+                <div class="episode">{f.label.series ? `${f.label.series} · ` : ''}{f.label.code}{f.label.title ? ` — ${f.label.title}` : ''}</div>
               {/if}
-              <button class="small secondary copy-link" onclick={() => copyLink(f)}>{l?.copied ? 'Copié ✓' : 'Copier le lien'}</button>
-              <button class="small secondary show-link" onclick={() => toggleLink(f)}>{l?.shown ? 'Masquer le lien' : 'Voir le lien'}</button>
-              {#if downloading === f.link}
-                <button class="small danger" onclick={() => session.cancel()}>Annuler</button>
+              <div class="name" class:sub={!!f.label}>{f.path}</div>
+              <div class="meta">{formatSize(f.size)}</div>
+              <div class="actions">
+                {#if mode !== 'link'}
+                  <button class="small dl-p2p" data-mode={mode} onclick={() => downloadP2P(f, mode)} disabled={!!downloading}>Télécharger</button>
+                {:else}
+                  <button class="small dl-direct" onclick={() => downloadDirect(f)}>Télécharger</button>
+                {/if}
+                <button class="small secondary copy-link" onclick={() => copyLink(f)}>{l?.copied ? 'Copié ✓' : 'Copier le lien'}</button>
+                <button class="small secondary show-link" onclick={() => showLink(f)}>{l?.renewed ? 'Nouveau lien ✓' : l?.shown ? 'Regénérer le lien' : 'Voir le lien'}</button>
+                {#if downloading === f.link}
+                  <button class="small danger" onclick={() => session.cancel()}>Annuler</button>
+                {/if}
+              </div>
+              {#if t}
+                <div class="progress">
+                  <progress max="100" value={percent(t)}></progress>
+                  <span>{formatSize(t.received)} / {formatSize(t.size)} · {t.state}</span>
+                  {#if t.error}<span class="error-inline">{t.error}</span>{/if}
+                </div>
+              {/if}
+              {#if l?.shown}
+                <div class="link">
+                  <div class="link-row">
+                    <a class="button secondary open-link" href={l.url} target="_blank" rel="noreferrer" title="Ouvrir le lien — clic droit : copier l’adresse du lien" aria-label="Ouvrir le lien">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                      </svg>
+                    </a>
+                    <input class="url" readonly value={l.url} onfocus={selectText} onclick={selectText} onmouseup={(e) => e.preventDefault()} />
+                    {@render expiry(l, 'expire')}
+                  </div>
+                </div>
               {/if}
             </div>
-            {#if t}
-              <div class="progress">
-                <progress max="100" value={percent(t)}></progress>
-                <span>{formatSize(t.received)} / {formatSize(t.size)} · {t.state}</span>
-                {#if t.error}<span class="error-inline">{t.error}</span>{/if}
-              </div>
-            {/if}
-            {#if l?.shown}
-              <div class="link">
-                <span class="hint">expire le {formatDate(l.expires)}</span>
-                <input class="url" readonly value={l.url} onfocus={(e) => e.currentTarget.select()} />
-              </div>
-            {/if}
           </li>
         {/each}
       </ul>
@@ -467,5 +596,15 @@
   .notice.muted { background: #2a2f3a; color: #e6e6e6; }
   .notice.error { background: #3a0e0e; color: #f08f8f; }
   .link { margin-top: 6px; }
-  .hint { font-size: 12px; color: #9aa0aa; }
+  .link-row { display: flex; gap: 6px; align-items: flex-start; }
+  .info-wrap { position: relative; display: flex; align-self: stretch; }
+  .info { padding: 0 8px; line-height: 0; }
+  .tip { display: none; position: absolute; right: 0; top: calc(100% + 4px); z-index: 1; white-space: nowrap; padding: 4px 8px; border-radius: 6px; background: #2a2f3a; color: #c8ccd4; font-size: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, .4); }
+  .info-wrap:hover .tip, .tip.open { display: block; }
+  .open-link { padding: 0 10px; line-height: 0; display: flex; align-items: center; }
+  .list li.file { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: start; }
+  .body { min-width: 0; }
+  .pick { width: auto; margin: 4px 0 0; }
+  .select-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .urls { width: 100%; resize: vertical; background: #0f1115; border: 1px solid #2a2f3a; color: #e6e6e6; border-radius: 6px; padding: 8px; font: 13px/1.4 ui-monospace, monospace; white-space: pre; }
 </style>

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { signToken, verifyToken } from '../src/stream-token.js';
+import { signToken, streamUrlBuilder, verifyToken } from '../src/stream-token.js';
 
 const SECRET = 'test-secret';
 const LINK = 'https://alldebrid.com/f/abc123';
@@ -36,4 +36,12 @@ test('expired token is rejected', () => {
 test('garbage is rejected', () => {
   assert.equal(verifyToken('nodot', SECRET), null);
   assert.equal(verifyToken('.abc', SECRET), null);
+});
+
+test('the link ends with the original file name, percent-encoded', async () => {
+  const name = 'Série S01E05 – l’été.mkv';
+  const { url } = await streamUrlBuilder('https://debrid.example/', SECRET)(LINK, name);
+  assert.ok(url.startsWith('https://debrid.example/s/'));
+  assert.ok(url.endsWith(`/${encodeURIComponent(name)}`));
+  assert.equal(decodeURIComponent(url.slice(url.lastIndexOf('/') + 1)), name);
 });
